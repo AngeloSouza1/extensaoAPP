@@ -77,6 +77,34 @@ Uma extensao para controle de ponto com registro de batidas, resumos, auditoria 
 3. Clique em "Carregar sem compactacao".
 4. Selecione a pasta do projeto.
 
+## Distribuicao (pasta ou ZIP)
+
+- Envie a pasta da extensao inteira ou um ZIP com os arquivos da extensao.
+- Quem receber so precisa repetir o mesmo processo em `chrome://extensions`.
+
+Para gerar um ZIP limpo (somente arquivos da extensao), um exemplo:
+
+```bash
+zip -r controle-ponto-extensao.zip \
+  manifest.json popup.html popup.js styles.css \
+  relatorio.html relatorio.css relatorio.js \
+  guia.html guia.css guia.js \
+  comprovante.html comprovante.css comprovante.js \
+  backup.html backup.js background.js icons/
+```
+
+Ou use o script:
+
+```bash
+./gerar_zip.sh
+```
+
+Opcionalmente, informe um nome de arquivo:
+
+```bash
+./gerar_zip.sh minha-extensao.zip
+```
+
 ## Monitoramento (dashboard)
 
 Este projeto agora pode enviar eventos para um servidor Node/Express e mostrar um dashboard com filtros e atualizacao em tempo real.
