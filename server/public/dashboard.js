@@ -28,14 +28,30 @@ const els = {
   activeUsersNote: document.getElementById('activeUsersNote'),
   eventsBody: document.getElementById('eventsBody'),
   eventsCount: document.getElementById('eventsCount'),
-  loadMoreBtn: document.getElementById('loadMoreBtn')
+  loadMoreBtn: document.getElementById('loadMoreBtn'),
+  tabButtons: document.querySelectorAll('.tab-btn'),
+  tabPanels: document.querySelectorAll('.tab-panel'),
+  pointsNote: document.getElementById('pointsNote'),
+  jsonFileInput: document.getElementById('jsonFileInput'),
+  uploadStatus: document.getElementById('uploadStatus'),
+  pointsDetail: document.getElementById('pointsDetail'),
+  pointsEmpty: document.getElementById('pointsEmpty'),
+  pointsData: document.getElementById('pointsData'),
+  pointsUser: document.getElementById('pointsUser'),
+  pointsMeta: document.getElementById('pointsMeta'),
+  pointsSummary: document.getElementById('pointsSummary'),
+  pointsTableBody: document.getElementById('pointsTableBody'),
+  pointsRaw: document.getElementById('pointsRaw'),
+  downloadJsonBtn: document.getElementById('downloadJsonBtn')
 };
 
 const state = {
   events: [],
   offset: 0,
   limit: 100,
-  filters: {}
+  filters: {},
+  selectedUserKey: '',
+  userJson: null
 };
 
 const newEventIds = new Set();
@@ -119,6 +135,17 @@ function formatTimeShort(iso) {
   return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatDateShort(value) {
+  if (!value) {
+    return '--';
+  }
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString('pt-BR');
+}
+
 function setStreamStatus(status, text) {
   if (!els.streamStatus || !els.streamDot) {
     return;
@@ -147,6 +174,22 @@ function setLoadingVisible(show, message) {
   }
 }
 
+function setActiveTab(tabName) {
+  if (!els.tabButtons || !els.tabPanels) {
+    return;
+  }
+  els.tabButtons.forEach(button => {
+    const isActive = button.dataset.tab === tabName;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  els.tabPanels.forEach(panel => {
+    const isActive = panel.dataset.tab === tabName;
+    panel.classList.toggle('active', isActive);
+    panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+}
+
 function readFilters() {
   return {
     q: els.filterQuery?.value.trim() || '',
@@ -173,9 +216,7 @@ function buildQuery(params) {
   return url.toString();
 }
 
-function apiFetch(path, params) {
-  const query = buildQuery(params || {});
-  const url = query ? `${path}?${query}` : path;
+function buildAuthHeaders() {
   const headers = {};
   if (dashboardToken) {
     headers['X-Dashboard-Token'] = dashboardToken;
@@ -183,7 +224,13 @@ function apiFetch(path, params) {
   if (apiKey) {
     headers['X-API-Key'] = apiKey;
   }
-  return fetch(url, { headers }).then(response => {
+  return headers;
+}
+
+function apiFetch(path, params) {
+  const query = buildQuery(params || {});
+  const url = query ? `${path}?${query}` : path;
+  return fetch(url, { headers: buildAuthHeaders() }).then(response => {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -244,6 +291,251 @@ function formatDuration(seconds) {
     partes.push(`${minutos}m`);
   }
   return partes.join(' ');
+}
+
+function formatDurationLabel(seconds) {
+  const label = formatDuration(seconds);
+  return label || '0m';
+}
+
+function getTotalSegundosDia(totalDia, periodos) {
+  if (totalDia !== undefined && totalDia !== null) {
+    if (typeof totalDia === 'object') {
+      return Number(totalDia.totalSegundos) || 0;
+    }
+    return Number(totalDia) || 0;
+  }
+  if (!Array.isArray(periodos)) {
+    return 0;
+  }
+  return periodos.reduce((sum, p) => {
+    if (p.totalSegundos !== undefined && p.totalSegundos !== null) {
+      return sum + (Number(p.totalSegundos) || 0);
+    }
+    const horas = Number(p.horas) || 0;
+    const minutos = Number(p.minutos) || 0;
+    return sum + (horas * 3600) + (minutos * 60);
+  }, 0);
+}
+
+function buildPeriodsLabel(periodos) {
+  if (!Array.isArray(periodos) || periodos.length === 0) {
+    return '-';
+  }
+  return periodos
+    .map(periodo => {
+      const entrada = formatTimeShort(periodo.entrada);
+      const saida = formatTimeShort(periodo.saida);
+      return `${entrada} - ${saida}`;
+    })
+    .join(' | ');
+}
+
+function extractUserInfo(data, fallbackKey) {
+  const user = data?.usuario || data?.user || {};
+  return {
+    key: user.chave || user.key || fallbackKey || '',
+    name: user.nome || user.name || '',
+    email: user.email || '',
+    provider: user.provider || ''
+  };
+}
+
+function extractDaysFromJson(data) {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  if (Array.isArray(data.dias)) {
+    return data.dias
+      .map(day => ({
+        date: day.data || '',
+        periodos: Array.isArray(day.periodos) ? day.periodos : [],
+        totalSegundos: Number(day.totalSegundos) || 0
+      }))
+      .filter(day => day.date);
+  }
+
+  const periodos = data.periodos && typeof data.periodos === 'object' ? data.periodos : {};
+  const totaisDiarios = data.totaisDiarios && typeof data.totaisDiarios === 'object' ? data.totaisDiarios : {};
+  const registros = data.registros && typeof data.registros === 'object' ? data.registros : {};
+  const keys = new Set([
+    ...Object.keys(periodos),
+    ...Object.keys(totaisDiarios),
+    ...Object.keys(registros)
+  ]);
+  return Array.from(keys)
+    .sort()
+    .map(date => {
+      const periodosDia = Array.isArray(periodos[date]) ? periodos[date] : [];
+      const totalSegundos = getTotalSegundosDia(totaisDiarios[date], periodosDia);
+      return { date, periodos: periodosDia, totalSegundos };
+    });
+}
+
+function setPointsMessage(message) {
+  if (els.pointsEmpty) {
+    els.pointsEmpty.textContent = message;
+  }
+}
+
+function setUploadStatus(message, isError = false) {
+  if (!els.uploadStatus) {
+    return;
+  }
+  els.uploadStatus.textContent = message || '';
+  els.uploadStatus.classList.toggle('error', isError);
+}
+
+function clearPointsView() {
+  if (els.pointsData) {
+    els.pointsData.hidden = true;
+  }
+  if (els.pointsEmpty) {
+    els.pointsEmpty.hidden = false;
+    els.pointsEmpty.textContent = 'Carregue um arquivo JSON para visualizar horários.';
+  }
+  setUploadStatus('');
+  if (els.jsonFileInput) {
+    els.jsonFileInput.value = '';
+  }
+  if (els.pointsSummary) {
+    els.pointsSummary.innerHTML = '';
+  }
+  if (els.pointsTableBody) {
+    els.pointsTableBody.innerHTML = '';
+  }
+  if (els.pointsRaw) {
+    els.pointsRaw.textContent = '';
+  }
+  if (els.pointsUser) {
+    els.pointsUser.textContent = 'Usuário';
+  }
+  if (els.pointsMeta) {
+    els.pointsMeta.textContent = '';
+  }
+  state.selectedUserKey = '';
+  state.userJson = null;
+}
+
+function normalizeDownloadName(value) {
+  return String(value || 'controle-ponto')
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120);
+}
+
+function renderPointsData(userKey, data) {
+  if (!els.pointsData || !els.pointsEmpty) {
+    return;
+  }
+  const user = extractUserInfo(data, userKey);
+  const displayName = user.name || user.email || user.key || userKey || 'Usuário';
+  const provider = user.provider ? ` (${user.provider})` : '';
+  if (els.pointsUser) {
+    els.pointsUser.textContent = `${displayName}${provider}`;
+  }
+  const metaParts = [];
+  if (user.email) {
+    metaParts.push(user.email);
+  }
+  if (user.key) {
+    metaParts.push(user.key);
+  }
+  const exportadoEm = data.exportadoEm || data.integridade?.geradoEm || '';
+  if (exportadoEm) {
+    metaParts.push(`Exportado: ${formatDateTime(exportadoEm)}`);
+  }
+  if (els.pointsMeta) {
+    els.pointsMeta.textContent = metaParts.join(' · ');
+  }
+
+  const days = extractDaysFromJson(data);
+  const totalSegundosFromResumo = Number(data?.resumo?.totalSegundos) || 0;
+  const totalSegundos = totalSegundosFromResumo
+    || days.reduce((sum, day) => sum + (Number(day.totalSegundos) || 0), 0);
+  const totalDias = Number(data?.resumo?.totalDias) || days.length;
+  const totalHoras = data?.resumo?.totalHoras || formatDurationLabel(totalSegundos);
+  const origem = data?.tipo ? String(data.tipo) : 'export';
+
+  if (els.pointsSummary) {
+    els.pointsSummary.innerHTML = `
+      <div class="card">
+        <div class="card-label">Dias</div>
+        <div class="card-value">${totalDias}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total</div>
+        <div class="card-value">${escapeHtml(totalHoras)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Origem</div>
+        <div class="card-value">${escapeHtml(origem)}</div>
+      </div>
+    `;
+  }
+
+  if (els.pointsTableBody) {
+    if (!days.length) {
+      els.pointsTableBody.innerHTML = '<tr><td colspan="3">Sem registros no JSON.</td></tr>';
+    } else {
+      els.pointsTableBody.innerHTML = days
+        .map(day => {
+          const periodosLabel = buildPeriodsLabel(day.periodos);
+          const totalLabel = formatDurationLabel(day.totalSegundos);
+          return `
+            <tr>
+              <td>${escapeHtml(formatDateShort(day.date))}</td>
+              <td>${escapeHtml(periodosLabel)}</td>
+              <td>${escapeHtml(totalLabel)}</td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+  }
+
+  if (els.pointsRaw) {
+    els.pointsRaw.textContent = JSON.stringify(data, null, 2);
+  }
+
+  els.pointsEmpty.hidden = true;
+  els.pointsData.hidden = false;
+}
+
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('file_read_failed'));
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
+async function loadJsonFromFile(file) {
+  if (!file) {
+    setUploadStatus('Selecione um arquivo JSON.', true);
+    return;
+  }
+  setUploadStatus(`Lendo ${file.name}...`);
+  setPointsMessage('Carregando JSON...');
+  if (els.pointsData) {
+    els.pointsData.hidden = true;
+  }
+  if (els.pointsEmpty) {
+    els.pointsEmpty.hidden = false;
+  }
+  try {
+    const text = await readJsonFile(file);
+    const data = JSON.parse(String(text || ''));
+    state.userJson = data;
+    const user = extractUserInfo(data, '');
+    state.selectedUserKey = user.key || '';
+    renderPointsData(state.selectedUserKey, data);
+    setUploadStatus('JSON carregado.');
+  } catch (error) {
+    setUploadStatus('Arquivo JSON inválido.', true);
+    setPointsMessage('Arquivo JSON inválido.');
+  }
 }
 
 function formatSource(value) {
@@ -416,6 +708,11 @@ function resetDashboardUI() {
   state.offset = 0;
   renderEvents();
   renderActiveUsers([]);
+  if (els.pointsNote) {
+    els.pointsNote.textContent = 'Carregue um arquivo JSON para consultar horários.';
+  }
+  state.pendingJsonFile = null;
+  clearPointsView();
   if (els.activeSessions) els.activeSessions.textContent = '0';
   if (els.activeSessionsMeta) els.activeSessionsMeta.textContent = '0 usuários';
   if (els.loginsToday) els.loginsToday.textContent = '0';
@@ -678,6 +975,13 @@ function initDashboardToken() {
 }
 
 function bindEvents() {
+  if (els.tabButtons) {
+    els.tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        setActiveTab(button.dataset.tab || 'monitor');
+      });
+    });
+  }
   if (els.applyFiltersBtn) {
     els.applyFiltersBtn.addEventListener('click', () => {
       fetchEvents(true).catch(() => {});
@@ -742,12 +1046,42 @@ function bindEvents() {
       }
     });
   }
+  if (els.jsonFileInput) {
+    els.jsonFileInput.addEventListener('change', (event) => {
+      const file = event.target.files?.[0] || null;
+      if (!file) {
+        setUploadStatus('');
+        return;
+      }
+      setUploadStatus(`Carregando ${file.name}...`);
+      loadJsonFromFile(file).catch(() => {});
+    });
+  }
+  if (els.downloadJsonBtn) {
+    els.downloadJsonBtn.addEventListener('click', () => {
+      if (!state.userJson) {
+        return;
+      }
+      const user = extractUserInfo(state.userJson, state.selectedUserKey);
+      const fileName = `${normalizeDownloadName(user.key || 'controle-ponto')}.json`;
+      const blob = new Blob([JSON.stringify(state.userJson, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+  }
 }
 
 async function init() {
   initApiKey();
   initDashboardToken();
   bindEvents();
+  setActiveTab('monitor');
   authConfig = await fetchAuthConfig();
   if (els.loginHint) {
     els.loginHint.textContent = authConfig.defaultUser

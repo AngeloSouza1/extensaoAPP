@@ -294,6 +294,44 @@ h1 {
   margin-bottom: 24px;
 }
 
+.tab-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 20px;
+}
+
+.tab-btn {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ink);
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tab-btn.active {
+  background: var(--accent-cool);
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(31, 111, 139, 0.25);
+  border-color: transparent;
+}
+
+.tab-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(26, 32, 38, 0.12);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
 .card {
   background: var(--card);
   border-radius: var(--radius);
@@ -327,6 +365,118 @@ h1 {
 .card-meta {
   font-size: 12px;
   color: var(--muted);
+}
+
+.points-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.upload-card {
+  display: grid;
+  gap: 6px;
+  border: 1px dashed rgba(31, 111, 139, 0.45);
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(31, 111, 139, 0.12), rgba(255, 138, 91, 0.12));
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.upload-card input {
+  display: none;
+}
+
+.upload-card span {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-cool);
+}
+
+.upload-card:hover {
+  border-color: rgba(31, 111, 139, 0.7);
+  box-shadow: 0 12px 24px rgba(31, 111, 139, 0.2);
+}
+
+.upload-status.error {
+  color: #b91c1c;
+}
+
+.points-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.points-empty {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.points-data {
+  display: grid;
+  gap: 14px;
+}
+
+.points-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.points-user {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.points-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.points-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.points-summary .card {
+  padding: 14px 16px;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.points-raw {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 12px 14px;
+  font-size: 12px;
+}
+
+.points-raw summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.points-raw pre {
+  margin: 12px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #495057;
 }
 
 .panel {
@@ -585,6 +735,13 @@ tbody tr:nth-child(even) {
   box-shadow: 0 12px 22px rgba(26, 32, 38, 0.12);
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
+}
+
 .row-new {
   animation: highlight 1.4s ease;
 }
@@ -631,6 +788,20 @@ tbody tr:nth-child(even) {
 @media (max-width: 640px) {
   body {
     padding: 24px 16px 32px;
+  }
+
+  .tab-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .points-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .points-upload {
+    align-items: stretch;
   }
 
   .panel,

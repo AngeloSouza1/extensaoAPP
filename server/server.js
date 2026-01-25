@@ -11,6 +11,7 @@ const API_KEY = process.env.MONITOR_API_KEY || '';
 const DASH_USER = process.env.MONITOR_DASH_USER || '';
 const DASH_PASS = process.env.MONITOR_DASH_PASS || '';
 const DASH_TOKEN_TTL_MS = Number(process.env.MONITOR_DASH_TOKEN_TTL_MS) || 0;
+const USER_JSON_DIR = process.env.MONITOR_USER_JSON_DIR || path.join(__dirname, 'data', 'user_json');
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 const ACTIVE_SESSION_TTL_MIN = Number(process.env.MONITOR_SESSION_TTL_MIN) || 60;
@@ -18,7 +19,7 @@ const ACTIVE_SESSION_TTL_MIN = Number(process.env.MONITOR_SESSION_TTL_MIN) || 60
 const app = express();
 app.set('trust proxy', true);
 app.use(cors());
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '5mb' }));
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -27,6 +28,7 @@ function ensureDir(dirPath) {
 }
 
 ensureDir(path.dirname(DB_PATH));
+ensureDir(USER_JSON_DIR);
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
@@ -191,6 +193,21 @@ const listAllSessionsStmt = db.prepare(`
   LIMIT 500;
 `);
 
+const listUsersStmt = db.prepare(`
+  SELECT
+    user_key,
+    user_name,
+    user_email,
+    user_provider,
+    MAX(ts) as last_event_at,
+    COUNT(*) as total_events
+  FROM events
+  WHERE user_key IS NOT NULL AND user_key != ''
+  GROUP BY user_key, user_name, user_email, user_provider
+  ORDER BY last_event_at DESC
+  LIMIT 500;
+`);
+
 const countActiveSessionsStmt = db.prepare(`
   SELECT COUNT(*) as count
   FROM sessions
@@ -312,6 +329,79 @@ function safeDate(value) {
     return null;
   }
   return parsed.toISOString();
+}
+
+function normalizeUserKey(value) {
+  return String(value || '').trim();
+}
+
+function normalizeUserFileName(userKey) {
+  return normalizeUserKey(userKey).replace(/[^a-zA-Z0-9._:@-]/g, '_');
+}
+
+function getUserJsonPathFromKey(userKey) {
+  const safeName = normalizeUserFileName(userKey);
+  if (!safeName) {
+    return null;
+  }
+  return path.join(USER_JSON_DIR, `${safeName}.json`);
+}
+
+function listUserJsonEntries() {
+  const entries = new Map();
+  let files = [];
+  try {
+    files = fs.readdirSync(USER_JSON_DIR);
+  } catch (error) {
+    return entries;
+  }
+  files
+    .filter(file => file.toLowerCase().endsWith('.json'))
+    .forEach(file => {
+      const filePath = path.join(USER_JSON_DIR, file);
+      let userKey = path.basename(file, '.json');
+      let name = '';
+      let email = '';
+      let provider = '';
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const data = JSON.parse(raw);
+        const user = data?.usuario || data?.user || {};
+        userKey = normalizeUserKey(user.chave || user.key || userKey) || userKey;
+        name = user.nome || user.name || '';
+        email = user.email || '';
+        provider = user.provider || '';
+      } catch (error) {
+        // ignore invalid JSON, keep fallback file name
+      }
+      let jsonUpdatedAt = '';
+      try {
+        jsonUpdatedAt = fs.statSync(filePath).mtime.toISOString();
+      } catch (error) {
+        jsonUpdatedAt = '';
+      }
+      entries.set(userKey, {
+        key: userKey,
+        name,
+        email,
+        provider,
+        hasJson: true,
+        jsonFile: file,
+        jsonPath: filePath,
+        jsonUpdatedAt
+      });
+    });
+  return entries;
+}
+
+function findUserJsonPath(userKey) {
+  const directPath = getUserJsonPathFromKey(userKey);
+  if (directPath && fs.existsSync(directPath)) {
+    return directPath;
+  }
+  const entries = listUserJsonEntries();
+  const entry = entries.get(normalizeUserKey(userKey));
+  return entry?.jsonPath || null;
 }
 
 function parsePayload(payloadText) {
@@ -527,6 +617,77 @@ app.post('/api/events', requireEventAuth, (req, res) => {
   broadcastEvent(eventResponse);
 
   return res.json({ ok: true, id: eventRow.id });
+});
+
+app.post('/api/users/json', requireDashboardAuth, (req, res) => {
+  const payload = req.body || {};
+  const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ error: 'invalid_json' });
+  }
+  const user = data.usuario || data.user || {};
+  const userKey = normalizeUserKey(user.chave || user.key || '');
+  if (!userKey) {
+    return res.status(400).json({ error: 'user_required' });
+  }
+  const filePath = getUserJsonPathFromKey(userKey);
+  if (!filePath) {
+    return res.status(400).json({ error: 'invalid_user' });
+  }
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (error) {
+    return res.status(500).json({ error: 'json_write_failed' });
+  }
+  return res.json({
+    ok: true,
+    key: userKey,
+    file: path.basename(filePath),
+    updatedAt: new Date().toISOString()
+  });
+});
+
+app.get('/api/users', requireDashboardAuth, (req, res) => {
+  const jsonEntries = listUserJsonEntries();
+  const rows = listUsersStmt.all();
+  const rowsByKey = new Map(rows.map(row => [row.user_key, row]));
+  const items = Array.from(jsonEntries.values())
+    .map(entry => {
+      const row = rowsByKey.get(entry.key);
+      return {
+        key: entry.key,
+        name: entry.name || row?.user_name || '',
+        email: entry.email || row?.user_email || '',
+        provider: entry.provider || row?.user_provider || '',
+        lastEventAt: row?.last_event_at || '',
+        totalEvents: row?.total_events || 0,
+        hasJson: true,
+        jsonFile: entry.jsonFile || '',
+        jsonUpdatedAt: entry.jsonUpdatedAt || ''
+      };
+    })
+    .sort((a, b) => (b.jsonUpdatedAt || '').localeCompare(a.jsonUpdatedAt || ''));
+
+  return res.json({ items });
+});
+
+app.get('/api/users/:userKey/json', requireDashboardAuth, (req, res) => {
+  const userKey = normalizeUserKey(req.params.userKey);
+  if (!userKey) {
+    return res.status(400).json({ error: 'user_required' });
+  }
+  const filePath = findUserJsonPath(userKey);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'json_not_found' });
+  }
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const data = JSON.parse(raw);
+    res.setHeader('X-User-Json-File', path.basename(filePath));
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ error: 'json_invalid' });
+  }
 });
 
 app.get('/api/events', requireDashboardAuth, (req, res) => {

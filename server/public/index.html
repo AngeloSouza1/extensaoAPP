@@ -68,108 +68,165 @@
     </header>
 
     <main>
-      <section class="summary-grid">
-        <div class="card">
-          <div class="card-label">Sessões ativas</div>
-          <div class="card-value" id="activeSessions">0</div>
-          <div class="card-meta" id="activeSessionsMeta">0 usuários</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Logins hoje</div>
-          <div class="card-value" id="loginsToday">0</div>
-          <div class="card-meta">Últimas 24h</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Alertas hoje</div>
-          <div class="card-value" id="alertsToday">0</div>
-          <div class="card-meta">Monitoramento</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Último evento</div>
-          <div class="card-value card-mono" id="lastEventAt">--:--</div>
-          <div class="card-meta">Atualização recente</div>
-        </div>
-      </section>
+      <div class="tab-bar" role="tablist" aria-label="Seções do monitoramento">
+        <button class="tab-btn active" data-tab="monitor" role="tab" aria-selected="true">Monitoramento</button>
+        <button class="tab-btn" data-tab="pontos" role="tab" aria-selected="false">Consulta de pontos</button>
+      </div>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Filtros</h2>
-          <div class="panel-actions">
-            <button class="btn ghost" id="clearFiltersBtn">Limpar</button>
-            <button class="btn primary" id="applyFiltersBtn">Aplicar</button>
+      <div class="tab-panel active" data-tab="monitor" id="tabMonitor" role="tabpanel">
+        <section class="summary-grid">
+          <div class="card">
+            <div class="card-label">Sessões ativas</div>
+            <div class="card-value" id="activeSessions">0</div>
+            <div class="card-meta" id="activeSessionsMeta">0 usuários</div>
           </div>
-        </div>
-        <div class="filters-grid">
-          <label class="field">
-            <span>Busca geral</span>
-            <input type="text" id="filterQuery" placeholder="usuário, email, device, ip">
-          </label>
-          <label class="field">
-            <span>Tipo</span>
-            <select id="filterType">
-              <option value="">Todos</option>
-              <option value="login_success">Login</option>
-              <option value="session_resume">Sessão</option>
-              <option value="login_failure">Falha login</option>
-              <option value="logout">Logout</option>
-              <option value="ponto_registro">Registro de ponto</option>
-              <option value="alerta">Alerta</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Provider</span>
-            <select id="filterProvider">
-              <option value="">Todos</option>
-              <option value="local">Local</option>
-              <option value="google">Google</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Data início</span>
-            <input type="datetime-local" id="filterSince">
-          </label>
-          <label class="field">
-            <span>Data fim</span>
-            <input type="datetime-local" id="filterUntil">
-          </label>
-        </div>
-        <div class="filters-actions">
-          <button class="btn ghost" id="exportBtn">Exportar CSV</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Usuários ativos</h2>
-          <div class="panel-note" id="activeUsersNote">0 usuários conectados</div>
-        </div>
-        <div class="chips" id="activeUsers"></div>
-      </section>
-
-      <section class="panel events-panel">
-        <div class="panel-head">
-          <h2>Eventos</h2>
-          <div class="panel-actions">
-            <span class="panel-note" id="eventsCount">0 eventos</span>
-            <button class="btn ghost" id="loadMoreBtn">Carregar mais</button>
+          <div class="card">
+            <div class="card-label">Logins hoje</div>
+            <div class="card-value" id="loginsToday">0</div>
+            <div class="card-meta">Últimas 24h</div>
           </div>
-        </div>
-        <div class="table-wrap" id="eventsTableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Tipo</th>
-              <th>Usuário</th>
-              <th>Dispositivo</th>
-              <th>IP</th>
-              <th>Horário</th>
-                <th>Detalhe</th>
-              </tr>
-            </thead>
-            <tbody id="eventsBody"></tbody>
-          </table>
-        </div>
-      </section>
+          <div class="card">
+            <div class="card-label">Alertas hoje</div>
+            <div class="card-value" id="alertsToday">0</div>
+            <div class="card-meta">Monitoramento</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Último evento</div>
+            <div class="card-value card-mono" id="lastEventAt">--:--</div>
+            <div class="card-meta">Atualização recente</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Filtros</h2>
+            <div class="panel-actions">
+              <button class="btn ghost" id="clearFiltersBtn">Limpar</button>
+              <button class="btn primary" id="applyFiltersBtn">Aplicar</button>
+            </div>
+          </div>
+          <div class="filters-grid">
+            <label class="field">
+              <span>Busca geral</span>
+              <input type="text" id="filterQuery" placeholder="usuário, email, device, ip">
+            </label>
+            <label class="field">
+              <span>Tipo</span>
+              <select id="filterType">
+                <option value="">Todos</option>
+                <option value="login_success">Login</option>
+                <option value="session_resume">Sessão</option>
+                <option value="login_failure">Falha login</option>
+                <option value="logout">Logout</option>
+                <option value="ponto_registro">Registro de ponto</option>
+                <option value="alerta">Alerta</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Provider</span>
+              <select id="filterProvider">
+                <option value="">Todos</option>
+                <option value="local">Local</option>
+                <option value="google">Google</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Data início</span>
+              <input type="datetime-local" id="filterSince">
+            </label>
+            <label class="field">
+              <span>Data fim</span>
+              <input type="datetime-local" id="filterUntil">
+            </label>
+          </div>
+          <div class="filters-actions">
+            <button class="btn ghost" id="exportBtn">Exportar CSV</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Usuários ativos</h2>
+            <div class="panel-note" id="activeUsersNote">0 usuários conectados</div>
+          </div>
+          <div class="chips" id="activeUsers"></div>
+        </section>
+
+        <section class="panel events-panel">
+          <div class="panel-head">
+            <h2>Eventos</h2>
+            <div class="panel-actions">
+              <span class="panel-note" id="eventsCount">0 eventos</span>
+              <button class="btn ghost" id="loadMoreBtn">Carregar mais</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="eventsTableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                <th>Usuário</th>
+                <th>Dispositivo</th>
+                <th>IP</th>
+                <th>Horário</th>
+                  <th>Detalhe</th>
+                </tr>
+              </thead>
+              <tbody id="eventsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tab-panel" data-tab="pontos" id="tabPontos" role="tabpanel">
+        <section class="panel points-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Consulta de pontos</h2>
+              <div class="panel-note" id="pointsNote">Carregue um arquivo JSON para consultar horários.</div>
+            </div>
+          </div>
+          <div class="points-upload">
+            <label class="upload-card">
+              <input type="file" id="jsonFileInput" accept=".json,application/json">
+              <span>Selecionar arquivo JSON</span>
+              <small>Arquivo exportado pela extensão.</small>
+            </label>
+            <div class="panel-note upload-status" id="uploadStatus"></div>
+          </div>
+          <div class="points-detail" id="pointsDetail">
+            <div class="points-empty" id="pointsEmpty">Carregue um arquivo JSON para visualizar horários.</div>
+            <div class="points-data" id="pointsData" hidden>
+              <div class="points-header">
+                <div>
+                  <div class="points-user" id="pointsUser">Usuário</div>
+                  <div class="points-meta" id="pointsMeta"></div>
+                </div>
+                <div class="points-actions">
+                  <button class="btn ghost" id="downloadJsonBtn">Baixar JSON</button>
+                </div>
+              </div>
+              <div class="points-summary" id="pointsSummary"></div>
+              <div class="table-wrap locked">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Períodos</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pointsTableBody"></tbody>
+                </table>
+              </div>
+              <details class="points-raw">
+                <summary>JSON completo</summary>
+                <pre id="pointsRaw"></pre>
+              </details>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <script src="dashboard.js"></script>
