@@ -42,7 +42,8 @@ const els = {
   pointsSummary: document.getElementById('pointsSummary'),
   pointsTableBody: document.getElementById('pointsTableBody'),
   pointsRaw: document.getElementById('pointsRaw'),
-  downloadJsonBtn: document.getElementById('downloadJsonBtn')
+  downloadJsonBtn: document.getElementById('downloadJsonBtn'),
+  reportPdfBtn: document.getElementById('reportPdfBtn')
 };
 
 const state = {
@@ -398,6 +399,12 @@ function clearPointsView() {
   if (els.jsonFileInput) {
     els.jsonFileInput.value = '';
   }
+  if (els.downloadJsonBtn) {
+    els.downloadJsonBtn.disabled = true;
+  }
+  if (els.reportPdfBtn) {
+    els.reportPdfBtn.disabled = true;
+  }
   if (els.pointsSummary) {
     els.pointsSummary.innerHTML = '';
   }
@@ -498,6 +505,12 @@ function renderPointsData(userKey, data) {
     els.pointsRaw.textContent = JSON.stringify(data, null, 2);
   }
 
+  if (els.downloadJsonBtn) {
+    els.downloadJsonBtn.disabled = false;
+  }
+  if (els.reportPdfBtn) {
+    els.reportPdfBtn.disabled = false;
+  }
   els.pointsEmpty.hidden = true;
   els.pointsData.hidden = false;
 }
@@ -530,6 +543,7 @@ async function loadJsonFromFile(file) {
     state.userJson = data;
     const user = extractUserInfo(data, '');
     state.selectedUserKey = user.key || '';
+    window.localStorage.setItem('monitor_report_json', JSON.stringify(data));
     renderPointsData(state.selectedUserKey, data);
     setUploadStatus('JSON carregado.');
   } catch (error) {
@@ -1073,6 +1087,15 @@ function bindEvents() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    });
+  }
+  if (els.reportPdfBtn) {
+    els.reportPdfBtn.addEventListener('click', () => {
+      if (!state.userJson) {
+        return;
+      }
+      window.localStorage.setItem('monitor_report_json', JSON.stringify(state.userJson));
+      window.open('/relatorio.html', '_blank');
     });
   }
 }

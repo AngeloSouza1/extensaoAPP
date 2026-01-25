@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relatório PDF - Ponto Eletrônico</title>
+    <link rel="stylesheet" href="relatorio.css" />
+  </head>
+  <body>
+    <div class="report-card">
+      <header class="report-header">
+        <div class="report-brand">
+          <img id="reportLogo" class="report-logo" alt="Logo" />
+          <div>
+            <div class="report-title" id="reportCompany">Ponto Eletrônico</div>
+            <div class="report-subtitle" id="reportAppDesc">Relatório detalhado</div>
+          </div>
+        </div>
+        <div class="report-meta" id="reportMeta"></div>
+      </header>
+
+      <section class="report-summary" id="reportSummary"></section>
+
+      <section class="report-content" id="reportContent"></section>
+
+      <footer class="report-actions">
+        <button id="reportPrint" class="btn primary">Salvar PDF</button>
+        <button id="reportClose" class="btn ghost">Fechar</button>
+      </footer>
+    </div>
+
+    <script src="relatorio.js"></script>
+  </body>
+</html>
