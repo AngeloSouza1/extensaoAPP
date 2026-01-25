@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ponto Eletrônico</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <h1>🕐 Ponto Eletrônico</h1>
+        <div class="header-actions">
+          <div class="menu-wrapper">
+            <button id="menuBtn" class="menu-toggle" title="Abrir menu">☰</button>
+          </div>
+          <button id="themeToggle" class="theme-toggle" title="Alternar tema">
+            <span id="themeIcon">🌙</span>
+          </button>
+        </div>
+      </div>
+      <div class="date-display" id="dateDisplay"></div>
+      <div class="user-info" id="userInfo">
+        <img id="userAvatar" class="user-avatar hidden" alt="Foto do usuario">
+        <div class="user-display" id="userDisplay"></div>
+      </div>
+      <div class="user-location hidden" id="userLocation"></div>
+    </header>
+
+    <div class="status-section">
+      <div class="status-card" id="statusCard">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <div class="status-text" id="statusText">Aguardando registro</div>
+        <div class="status-hint" id="statusHint"></div>
+        <div class="current-time" id="currentTime">--:--:--</div>
+      </div>
+    </div>
+
+    <div class="action-buttons">
+      <button id="entradaBtn" class="btn btn-primary">
+        <span class="btn-icon">📥</span>
+        <span>Entrada</span>
+      </button>
+      <button id="almocoSaidaBtn" class="btn btn-warning" disabled>
+        <span class="btn-icon">🍽️</span>
+        <span>Almoço</span>
+      </button>
+      <button id="almocoRetornoBtn" class="btn btn-info" disabled>
+        <span class="btn-icon">↩️</span>
+        <span>Retorno</span>
+      </button>
+      <button id="saidaBtn" class="btn btn-secondary" disabled>
+        <span class="btn-icon">📤</span>
+        <span>Saída</span>
+      </button>
+    </div>
+
+    <div class="info-section">
+      <div class="info-item">
+        <span class="info-label">Horas de hoje:</span>
+        <span class="info-value" id="hoursToday">00:00</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Desconto almoço:</span>
+        <span class="info-value" id="lunchDiscount">00:00</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Total do mês:</span>
+        <span class="info-value" id="hoursMonth">00:00</span>
+      </div>
+    </div>
+
+    <div class="schedule-summary hidden" id="scheduleSummary">
+      <span>Saldo do dia</span>
+      <span id="dailyBalance">+00:00</span>
+    </div>
+
+  <div class="history-section">
+      <div class="history-header">
+        <h2>📋 Histórico de Hoje</h2>
+        <button id="addRecordBtn" class="history-add" title="Adicionar registro">+</button>
+      </div>
+      <div class="holiday-indicator hidden" id="holidayIndicator"></div>
+      <div class="history-list" id="historyList">
+        <div class="empty-state">Nenhum registro hoje</div>
+      </div>
+  </div>
+
+  <div class="actions-footer">
+    <button id="clearBtn" class="btn btn-link">Limpar Histórico</button>
+  </div>
+  </div>
+
+  <div id="menuPanel" class="menu-panel" aria-hidden="true">
+    <button id="menuConfigBtn" class="menu-item">
+      <span class="menu-item-icon">⏱️</span>
+      <span>Jornada padrão</span>
+    </button>
+    <button id="menuPasswordBtn" class="menu-item">
+      <span class="menu-item-icon">🔒</span>
+      <span>Senha de edição</span>
+    </button>
+    <button id="menuLoginPasswordBtn" class="menu-item">
+      <span class="menu-item-icon">🔐</span>
+      <span>Senha de login</span>
+    </button>
+    <button id="menuMonitorBtn" class="menu-item">
+      <span class="menu-item-icon">📡</span>
+      <span>Monitoramento</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button id="menuWeekBtn" class="menu-item">
+      <span class="menu-item-icon">📅</span>
+      <span>Resumo semanal</span>
+    </button>
+    <button id="menuMonthBtn" class="menu-item">
+      <span class="menu-item-icon">🗓️</span>
+      <span>Resumo mensal</span>
+    </button>
+    <button id="menuReportBtn" class="menu-item">
+      <span class="menu-item-icon">🧾</span>
+      <span>Gerar PDF</span>
+    </button>
+    <button id="menuGuideBtn" class="menu-item">
+      <span class="menu-item-icon">📘</span>
+      <span>Guia do app (PDF)</span>
+    </button>
+    <button id="menuAuditBtn" class="menu-item">
+      <span class="menu-item-icon">📝</span>
+      <span>Alterações</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button id="menuMirrorBtn" class="menu-item">
+      <span class="menu-item-icon">🗂️</span>
+      <span>Espelho (JSON)</span>
+    </button>
+    <button id="menuAfdBtn" class="menu-item">
+      <span class="menu-item-icon">📄</span>
+      <span>AFD (CSV)</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button id="menuHolidaysBtn" class="menu-item">
+      <span class="menu-item-icon">🎉</span>
+      <span>Feriados</span>
+    </button>
+    <div class="menu-divider"></div>
+    <button id="menuBackupBtn" class="menu-item">
+      <span class="menu-item-icon">💾</span>
+      <span>Backup/Restaurar</span>
+    </button>
+    <button id="menuLogoutBtn" class="menu-item">
+      <span class="menu-item-icon">🚪</span>
+      <span>Sair</span>
+    </button>
+  </div>
+
+  <div class="modal-overlay" id="configModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+      <div class="modal-header">
+        <h2 id="configTitle">Jornada padrão</h2>
+        <button id="configClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-toggle">
+          <input type="checkbox" id="useSchedule">
+          <span>Usar jornada padrão</span>
+        </label>
+        <div class="config-grid">
+          <label class="config-field">
+            <span>Entrada</span>
+            <input type="time" id="workStart">
+          </label>
+          <label class="config-field">
+            <span>Saída</span>
+            <input type="time" id="workEnd">
+          </label>
+          <label class="config-field">
+            <span>Almoço início</span>
+            <input type="time" id="lunchStart">
+          </label>
+          <label class="config-field">
+            <span>Almoço fim</span>
+            <input type="time" id="lunchEnd">
+          </label>
+        </div>
+        <div class="config-summary">
+          <span>Carga diária</span>
+          <span id="dailyTarget">00:00</span>
+        </div>
+        <div class="config-alert">
+          <label class="config-toggle">
+            <input type="checkbox" id="missingExitAlert">
+            <span>Alertar sem saída após</span>
+          </label>
+          <div class="config-alert-input">
+            <input type="number" id="missingExitHours" min="1" max="24" step="0.5">
+            <span>h</span>
+          </div>
+        </div>
+        <div class="config-actions">
+          <button id="scheduleSimulateBtn" class="btn btn-secondary">Simular jornada</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="monitorModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="monitorTitle">
+      <div class="modal-header">
+        <h2 id="monitorTitle">Monitoramento</h2>
+        <button id="monitorClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-toggle">
+          <input type="checkbox" id="monitorEnabled">
+          <span>Ativar envio de eventos</span>
+        </label>
+        <label class="config-field">
+          <span>URL do servidor</span>
+          <input type="url" id="monitorUrl" placeholder="http://localhost:8787">
+        </label>
+        <label class="config-field">
+          <span>Chave API (opcional)</span>
+          <input type="password" id="monitorApiKey" placeholder="sua-chave">
+        </label>
+        <label class="config-field">
+          <span>Nome do dispositivo</span>
+          <input type="text" id="monitorDeviceName" placeholder="Notebook RH">
+        </label>
+        <label class="config-field">
+          <span>ID do dispositivo</span>
+          <input type="text" id="monitorDeviceId" readonly>
+        </label>
+        <div class="config-actions">
+          <button id="monitorTestBtn" class="btn btn-secondary">Testar conexão</button>
+          <button id="monitorSaveBtn" class="btn btn-primary">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="monthModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="monthTitle">
+      <div class="modal-header">
+        <h2 id="monthTitle">Resumo mensal</h2>
+        <button id="monthClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="month-grid-summary">
+          <div class="week-item">
+            <span>Total</span>
+            <span id="monthTotal">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Média diária</span>
+            <span id="monthAverage">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Horas extras</span>
+            <span id="monthExtra">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Faltas</span>
+            <span id="monthAbsences">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="weekModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="weekTitle">
+      <div class="modal-header">
+        <h2 id="weekTitle">Resumo semanal</h2>
+        <button id="weekClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="week-grid">
+          <div class="week-item">
+            <span>Total</span>
+            <span id="weekTotal">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Média diária</span>
+            <span id="weekAverage">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Horas extras</span>
+            <span id="weekExtra">00:00</span>
+          </div>
+          <div class="week-item">
+            <span>Faltas</span>
+            <span id="weekAbsences">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="holidaysModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="holidaysTitle">
+      <div class="modal-header">
+        <h2 id="holidaysTitle">Feriados</h2>
+        <button id="holidaysClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-field">
+          <span>Data</span>
+          <input type="date" id="holidaysDate">
+        </label>
+        <label class="config-field">
+          <span>Nome</span>
+          <input type="text" id="holidaysName" maxlength="40" placeholder="Ex: Carnaval">
+        </label>
+        <div class="auth-actions">
+          <button id="holidaysAdd" class="btn btn-primary">Adicionar</button>
+        </div>
+        <div class="holiday-list" id="holidaysList"></div>
+        <div class="empty-state hidden" id="holidaysEmpty">Nenhum feriado cadastrado.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="editModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="modal-header">
+        <h2 id="editTitle">Editar registro</h2>
+        <button id="editClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-field">
+          <span>Tipo</span>
+          <select id="editType">
+            <option value="entrada">Entrada</option>
+            <option value="saida_almoco">Saída Almoço</option>
+            <option value="retorno_almoco">Retorno Almoço</option>
+            <option value="saida">Saída</option>
+          </select>
+        </label>
+        <label class="config-field">
+          <span>Horário</span>
+          <input type="time" id="editTime">
+        </label>
+        <label class="config-field">
+          <span>Motivo da alteração</span>
+          <input type="text" id="editReason" maxlength="120" placeholder="Ex: ajuste de horário">
+        </label>
+        <label class="config-toggle">
+          <input type="checkbox" id="editConsent">
+          <span>Confirmo a alteração</span>
+        </label>
+        <div class="edit-actions">
+          <button id="editSave" class="btn btn-primary">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="auditModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="auditTitle">
+      <div class="modal-header">
+        <h2 id="auditTitle">Alterações</h2>
+        <button id="auditClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="audit-list" id="auditList"></div>
+        <div class="empty-state hidden" id="auditEmpty">Nenhuma alteração registrada.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="backupModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="backupTitle">
+      <div class="modal-header">
+        <h2 id="backupTitle">Backup/Restaurar</h2>
+        <button id="backupClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="backup-actions">
+          <button id="backupDownloadBtn" class="btn btn-primary">Baixar backup</button>
+        </div>
+        <div class="backup-restore">
+          <button id="backupRestoreBtn" class="btn btn-secondary">Abrir restauração</button>
+          <div class="backup-hint">A restauração abre uma janela dedicada (o popup fecha ao selecionar arquivo).</div>
+          <div class="backup-hint">A restauração substitui seus registros atuais.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="passwordModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="passwordTitle">
+      <div class="modal-header">
+        <h2 id="passwordTitle">Senha de edição</h2>
+        <button id="passwordClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="auth-warning hidden" id="passwordDefaultHint">
+          Senha padrão ativa: admin
+        </div>
+        <label class="config-field" id="passwordCurrentField">
+          <span>Senha atual</span>
+          <input type="password" id="passwordCurrent">
+        </label>
+        <label class="config-field">
+          <span>Nova senha</span>
+          <input type="password" id="passwordNew">
+        </label>
+        <label class="config-field">
+          <span>Confirmar senha</span>
+          <input type="password" id="passwordConfirm">
+        </label>
+        <div class="auth-actions">
+          <button id="passwordSave" class="btn btn-primary">Salvar senha</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="authModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="modal-header">
+        <h2 id="authTitle">Confirmar senha</h2>
+        <button id="authClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-field">
+          <span>Senha</span>
+          <input type="password" id="authPassword">
+        </label>
+        <div class="auth-error" id="authError"></div>
+        <div class="auth-actions">
+          <button id="authConfirm" class="btn btn-primary">Liberar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="messageModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="messageTitle">
+      <div class="modal-header">
+        <h2 id="messageTitle">Mensagem</h2>
+        <button id="messageClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <div class="message-text" id="messageText"></div>
+        <div class="message-actions" id="messageActions">
+          <button id="messageCancel" class="btn btn-secondary hidden">Cancelar</button>
+          <button id="messageOk" class="btn btn-primary">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="loginPasswordModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="loginPasswordTitle">
+      <div class="modal-header">
+        <h2 id="loginPasswordTitle">Senha de login</h2>
+        <button id="loginPasswordClose" class="modal-close" aria-label="Fechar">X</button>
+      </div>
+      <div class="modal-body">
+        <label class="config-field" id="loginPasswordCurrentField">
+          <span>Senha atual</span>
+          <input type="password" id="loginPasswordCurrent">
+        </label>
+        <label class="config-field">
+          <span>Nova senha</span>
+          <input type="password" id="loginPasswordNew">
+        </label>
+        <label class="config-field">
+          <span>Confirmar senha</span>
+          <input type="password" id="loginPasswordConfirmNew">
+        </label>
+        <div class="auth-actions">
+          <button id="loginPasswordSave" class="btn btn-primary">Salvar senha</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="loginModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="modal-header">
+        <h2 id="loginTitle">Entrar</h2>
+      </div>
+      <div class="modal-body">
+        <div class="login-hint hidden" id="loginModeHint"></div>
+        <label class="config-field">
+          <span>Usuário</span>
+          <input type="text" id="loginName" maxlength="40">
+        </label>
+        <label class="config-field" id="loginPasswordField">
+          <span id="loginPasswordLabel">Senha</span>
+          <input type="password" id="loginPassword">
+        </label>
+        <label class="config-toggle">
+          <input type="checkbox" id="loginAuto">
+          <span>Login automático</span>
+        </label>
+        <div class="login-actions">
+          <button id="loginSubmit" class="btn btn-primary">Entrar</button>
+        </div>
+        <div class="login-divider"><span>ou</span></div>
+        <button id="loginGoogleBtn" class="btn btn-google" type="button">
+          <span class="google-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img" aria-hidden="true" focusable="false">
+              <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.651 32.64 29.232 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.964 3.036l5.657-5.657C34.263 6.053 29.404 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+              <path fill="#FF3D00" d="M6.306 14.691l6.572 4.819C14.637 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.964 3.036l5.657-5.657C34.263 6.053 29.404 4 24 4c-7.682 0-14.4 4.337-17.694 10.691z"/>
+              <path fill="#4CAF50" d="M24 44c5.125 0 9.869-1.963 13.409-5.176l-6.19-5.238C29.093 35.091 26.661 36 24 36c-5.202 0-9.606-3.33-11.263-7.938l-6.505 5.016C9.48 39.556 16.185 44 24 44z"/>
+              <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-1.022 2.751-3.007 5.086-5.684 6.586l.004-.002 6.19 5.238C35.331 40.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+            </svg>
+          </span>
+          <span>Entrar com Google</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="popup.js"></script>
+</body>
+</html>

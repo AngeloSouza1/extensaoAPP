@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Ponto Eletrônico",
+  "version": "1.0.0",
+  "description": "Sistema profissional de registro de ponto eletrônico",
+  "permissions": [
+    "storage",
+    "identity",
+    "geolocation",
+    "alarms"
+  ],
+  "oauth2": {
+    "client_id": "605657774443-dcl28frqsmbav0sv1adl5jtg3n7juk0n.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  },
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://nominatim.openstreetmap.org/*",
+    "http://localhost:8787/*",
+    "http://127.0.0.1:8787/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

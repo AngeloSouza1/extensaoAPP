@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Guia do App - Ponto Eletronico</title>
+    <link rel="stylesheet" href="guia.css" />
+  </head>
+  <body>
+    <div class="guide-card">
+      <header class="guide-header">
+        <div class="guide-brand">
+          <img id="guideLogo" class="guide-logo" alt="Logo" />
+          <div>
+            <div class="guide-title" id="guideCompany">Ponto Eletronico</div>
+            <div class="guide-subtitle">Guia de funcionalidades</div>
+          </div>
+        </div>
+        <div class="guide-meta" id="guideMeta"></div>
+      </header>
+
+      <section class="guide-content" id="guideContent">
+        <div class="guide-section">
+          <h3>1) Registro de ponto</h3>
+          <p>Use os botoes Entrada, Almoco, Retorno e Saida para marcar as batidas do dia.</p>
+          <div class="guide-example">
+            Exemplo: Entrada 09:00 -> Saida Almoco 12:00 -> Retorno 13:00 -> Saida 18:00.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>2) Historico do dia</h3>
+          <p>Mostra cada registro do dia e os periodos calculados automaticamente.</p>
+          <div class="guide-example">
+            Exemplo: 2 periodos no mesmo dia (manha e tarde) com totais separados.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>3) Jornadas e alertas</h3>
+          <p>Defina jornada padrao, almoco e alerta de ausencia de saida.</p>
+          <div class="guide-example">
+            Exemplo: Jornada 09:00-18:00 com almoco 12:00-13:00.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>4) Resumos semanal e mensal</h3>
+          <p>Calcula totais, medias, horas extras e faltas (considerando feriados).</p>
+          <div class="guide-example">
+            Exemplo: Semana com 5 dias uteis e 1 feriado exibido no resumo.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>5) Feriados</h3>
+          <p>Cadastre feriados para ajustar medias e faltas.</p>
+          <div class="guide-example">
+            Exemplo: 01/01 - Confraternizacao Universal.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>6) Login local e Google</h3>
+          <p>Dados separados por usuario (local ou Google), sem mistura de historicos.</p>
+          <div class="guide-example">
+            Exemplo: admin possui historico A, usuario Google possui historico B.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>7) Edicao com motivo e consentimento</h3>
+          <p>Ao editar/adicionar manualmente, informe motivo e confirme a alteracao.</p>
+          <div class="guide-example">
+            Exemplo: Motivo "Esqueci a batida" + confirmacao registrada no log.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>8) Log de alteracoes</h3>
+          <p>Registro completo de quem alterou, quando, antes/depois e consentimento.</p>
+          <div class="guide-example">
+            Exemplo: Alteracao em 12/01 as 10:15 com motivo e consentimento.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>9) Exportacoes e backups</h3>
+          <p>Exporta JSON, CSV, espelho e AFD provisorio. Backup/restauracao no menu.</p>
+          <div class="guide-example">
+            Exemplo: Exportar espelho para auditoria interna.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>10) Integridade e assinatura local</h3>
+          <p>Hash encadeado por dia + checksum nos exports e assinatura local no espelho.</p>
+          <div class="guide-example">
+            Exemplo: checksum permite verificar se arquivo foi alterado.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>11) Relatorio PDF</h3>
+          <p>Gera PDF detalhado com registros, periodos, alteracoes e checksum.</p>
+          <div class="guide-example">
+            Exemplo: PDF do mes com todas as linhas do historico.
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>12) Geolocalizacao</h3>
+          <p>Registra cidade e coordenadas em logins e exports (quando permitido).</p>
+          <div class="guide-example">
+            Exemplo: "Cacapava - SP | -23.07, -45.71".
+          </div>
+        </div>
+      </section>
+
+      <footer class="guide-actions">
+        <button id="guidePrint" class="btn primary">Salvar PDF</button>
+        <button id="guideClose" class="btn ghost">Fechar</button>
+      </footer>
+    </div>
+
+    <script src="guia.js"></script>
+  </body>
+</html>

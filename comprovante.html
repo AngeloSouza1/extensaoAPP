@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comprovante de Registro</title>
+    <link rel="stylesheet" href="comprovante.css" />
+  </head>
+  <body>
+    <div class="receipt-card">
+      <header class="receipt-header">
+        <div class="receipt-brand">
+          <img id="receiptLogo" class="receipt-logo" alt="Logo" />
+          <div>
+            <div class="receipt-title" id="receiptCompany">Ponto Eletrônico</div>
+            <div class="receipt-subtitle">Comprovante de registro</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="receipt-body" id="receiptBody">
+        <div class="receipt-row">
+          <span class="receipt-label">Empresa</span>
+          <strong id="receiptCompanyRow">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Tipo</span>
+          <strong id="receiptType">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Data</span>
+          <strong id="receiptDate">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Hora</span>
+          <strong id="receiptTime">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Usuário</span>
+          <strong id="receiptUser">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Provedor</span>
+          <strong id="receiptProvider">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Localização</span>
+          <strong id="receiptLocation">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Timestamp</span>
+          <strong id="receiptTimestamp">-</strong>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Assinatura</span>
+          <span class="receipt-signature" id="receiptSignature">-</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Emitido em</span>
+          <strong id="receiptIssued">-</strong>
+        </div>
+      </section>
+
+      <footer class="receipt-actions">
+        <button id="receiptPrint" class="btn primary">Salvar PDF</button>
+        <button id="receiptClose" class="btn ghost">Fechar</button>
+      </footer>
+    </div>
+
+    <script src="comprovante.js"></script>
+  </body>
+</html>

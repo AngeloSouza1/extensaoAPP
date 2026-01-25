@@ -1,0 +1,26 @@
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python (se usar o script de ícones)
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+
+# Logs
+*.log
+
+# Node
+node_modules/
+server/node_modules/
+server/data/
+server/*.db

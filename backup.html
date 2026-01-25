@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="backup-page">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restaurar backup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="backup-page">
+  <div class="container backup-container">
+    <header>
+      <div class="header-top">
+        <h1>💾 Restaurar backup</h1>
+      </div>
+      <div class="date-display">Selecione o arquivo do backup para restaurar.</div>
+    </header>
+    <div class="backup-page-body">
+      <label class="config-field">
+        <span>Arquivo JSON</span>
+        <input type="file" id="restoreFile" accept=".json">
+      </label>
+      <button id="restoreBtn" class="btn btn-primary">Restaurar</button>
+      <div class="backup-hint">Esta ação substitui seus registros atuais.</div>
+      <div class="backup-hint">Após restaurar, clique no ícone da extensão para abrir o app novamente.</div>
+      <div class="restore-status hidden" id="restoreStatus"></div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="confirmModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-header">
+        <h2 id="confirmTitle">Confirmar restauração</h2>
+      </div>
+      <div class="modal-body">
+        <div class="message-text" id="confirmText"></div>
+        <div class="message-actions">
+          <button id="confirmCancel" class="btn btn-secondary">Cancelar</button>
+          <button id="confirmOk" class="btn btn-primary">Restaurar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="backup.js"></script>
+</body>
+</html>
