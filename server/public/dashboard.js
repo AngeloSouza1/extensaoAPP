@@ -43,7 +43,8 @@ const els = {
   pointsTableBody: document.getElementById('pointsTableBody'),
   pointsRaw: document.getElementById('pointsRaw'),
   downloadJsonBtn: document.getElementById('downloadJsonBtn'),
-  reportPdfBtn: document.getElementById('reportPdfBtn')
+  reportPdfBtn: document.getElementById('reportPdfBtn'),
+  downloadCsvBtn: document.getElementById('downloadCsvBtn')
 };
 
 const state = {
@@ -405,6 +406,9 @@ function clearPointsView() {
   if (els.reportPdfBtn) {
     els.reportPdfBtn.disabled = true;
   }
+  if (els.downloadCsvBtn) {
+    els.downloadCsvBtn.disabled = true;
+  }
   if (els.pointsSummary) {
     els.pointsSummary.innerHTML = '';
   }
@@ -429,6 +433,49 @@ function normalizeDownloadName(value) {
     .replace(/[\\/:*?"<>|]+/g, '_')
     .replace(/\s+/g, '_')
     .slice(0, 120);
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const str = String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function buildDataMapsFromJson(data) {
+  const registros = data?.registros && typeof data.registros === 'object' ? { ...data.registros } : {};
+  const periodos = data?.periodos && typeof data.periodos === 'object' ? { ...data.periodos } : {};
+  if (Array.isArray(data?.dias)) {
+    data.dias.forEach(dia => {
+      if (!dia || !dia.data) {
+        return;
+      }
+      if (!Array.isArray(registros[dia.data]) && Array.isArray(dia.registros)) {
+        registros[dia.data] = dia.registros;
+      }
+      if (!Array.isArray(periodos[dia.data]) && Array.isArray(dia.periodos)) {
+        periodos[dia.data] = dia.periodos;
+      }
+    });
+  }
+  return { registros, periodos };
+}
+
+function resumoRegistroAuditoria(registro) {
+  if (!registro) {
+    return '-';
+  }
+  const tipo = registro.tipo || 'Registro';
+  const hora = registro.hora || (registro.timestamp
+    ? new Date(registro.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : '');
+  const data = registro.timestamp ? new Date(registro.timestamp).toISOString().split('T')[0] : '';
+  const partes = [tipo, hora, data].filter(Boolean);
+  return partes.length ? partes.join(' | ') : '-';
 }
 
 function renderPointsData(userKey, data) {
@@ -511,6 +558,9 @@ function renderPointsData(userKey, data) {
   if (els.reportPdfBtn) {
     els.reportPdfBtn.disabled = false;
   }
+  if (els.downloadCsvBtn) {
+    els.downloadCsvBtn.disabled = false;
+  }
   els.pointsEmpty.hidden = true;
   els.pointsData.hidden = false;
 }
@@ -550,6 +600,146 @@ async function loadJsonFromFile(file) {
     setUploadStatus('Arquivo JSON inválido.', true);
     setPointsMessage('Arquivo JSON inválido.');
   }
+}
+
+function buildCsvFromJson(data) {
+  const { registros, periodos } = buildDataMapsFromJson(data || {});
+  const auditLogs = Array.isArray(data?.auditLogs) ? data.auditLogs : [];
+  const headers = [
+    'categoria',
+    'data',
+    'tipo',
+    'usuario',
+    'usuarioProvider',
+    'usuarioEmail',
+    'timestamp',
+    'hora',
+    'entrada',
+    'saida',
+    'horas',
+    'minutos',
+    'teveAlmoco',
+    'totalSegundos',
+    'cidade',
+    'latitude',
+    'longitude',
+    'auditAcao',
+    'auditMotivo',
+    'auditAlteradoEm',
+    'auditData',
+    'auditAntes',
+    'auditDepois',
+    'auditConsentimento',
+    'auditConsentimentoEm',
+    'hashDiaFinal',
+    'hashDiaTotalRegistros',
+    'checksumExport'
+  ];
+
+  const col = Object.fromEntries(headers.map((name, index) => [name, index]));
+  const rows = [headers];
+  const criarLinha = () => new Array(headers.length).fill('');
+  const datas = new Set([...Object.keys(registros), ...Object.keys(periodos)]);
+  const datasOrdenadas = Array.from(datas).sort();
+
+  datasOrdenadas.forEach(dataKey => {
+    const registrosDoDia = registros[dataKey] || [];
+    registrosDoDia.forEach(reg => {
+      const localizacao = reg.localizacao || {};
+      const row = criarLinha();
+      row[col.categoria] = 'registro';
+      row[col.data] = dataKey;
+      row[col.tipo] = reg.tipo || '';
+      row[col.usuario] = reg.usuario || '';
+      row[col.usuarioProvider] = reg.usuarioProvider || '';
+      row[col.usuarioEmail] = reg.usuarioEmail || '';
+      row[col.timestamp] = reg.timestamp || '';
+      row[col.hora] = reg.hora || '';
+      row[col.cidade] = localizacao.cidade || '';
+      row[col.latitude] = localizacao.latitude ?? '';
+      row[col.longitude] = localizacao.longitude ?? '';
+      rows.push(row);
+    });
+
+    const periodosDoDia = periodos[dataKey] || [];
+    periodosDoDia.forEach(periodo => {
+      const row = criarLinha();
+      row[col.categoria] = 'periodo';
+      row[col.data] = dataKey;
+      row[col.entrada] = periodo.entrada || '';
+      row[col.saida] = periodo.saida || '';
+      row[col.horas] = periodo.horas ?? '';
+      row[col.minutos] = periodo.minutos ?? '';
+      row[col.teveAlmoco] = periodo.teveAlmoco ?? '';
+      row[col.totalSegundos] = periodo.totalSegundos ?? '';
+      rows.push(row);
+    });
+  });
+
+  if (auditLogs.length > 0) {
+    const logsOrdenados = [...auditLogs].sort((a, b) => new Date(a.alteradoEm) - new Date(b.alteradoEm));
+    logsOrdenados.forEach(log => {
+      const alteradoEm = log.alteradoEm || '';
+      const horaAlteracao = alteradoEm
+        ? new Date(alteradoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      const row = criarLinha();
+      row[col.categoria] = 'auditoria';
+      row[col.data] = log.data || '';
+      row[col.tipo] = log.acao || '';
+      row[col.usuario] = log.alteradoPor?.usuario || '';
+      row[col.usuarioProvider] = log.alteradoPor?.provider || '';
+      row[col.usuarioEmail] = log.alteradoPor?.email || '';
+      row[col.timestamp] = alteradoEm;
+      row[col.hora] = horaAlteracao;
+      row[col.auditAcao] = log.acao || '';
+      row[col.auditMotivo] = log.motivo || '';
+      row[col.auditAlteradoEm] = alteradoEm;
+      row[col.auditData] = log.data || '';
+      row[col.auditAntes] = resumoRegistroAuditoria(log.antes);
+      row[col.auditDepois] = resumoRegistroAuditoria(log.depois);
+      row[col.auditConsentimento] = log.consentimento ? 'Sim' : 'Nao';
+      row[col.auditConsentimentoEm] = log.consentimentoEm || '';
+      rows.push(row);
+    });
+  }
+
+  const hashesPorDia = data?.integridade?.hashesPorDia || {};
+  Object.entries(hashesPorDia).forEach(([dataKey, info]) => {
+    const row = criarLinha();
+    row[col.categoria] = 'hash_dia';
+    row[col.data] = dataKey;
+    row[col.hashDiaFinal] = info?.hashFinal || '';
+    row[col.hashDiaTotalRegistros] = info?.totalRegistros != null ? String(info.totalRegistros) : '';
+    rows.push(row);
+  });
+
+  const checksum = data?.integridade?.checksum
+    || data?.integridade?.checksumExport
+    || data?.assinaturaDigital?.hashAssinado
+    || '';
+  const checksumRow = criarLinha();
+  checksumRow[col.categoria] = 'checksum';
+  checksumRow[col.checksumExport] = checksum;
+  rows.push(checksumRow);
+
+  return rows.map(row => row.map(csvEscape).join(',')).join('\n');
+}
+
+function baixarCsvDoJson(data) {
+  const csvContent = buildCsvFromJson(data);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const user = extractUserInfo(data, '');
+  const prefixo = normalizeDownloadName(user.key || 'controle-ponto');
+  const fileName = `${prefixo}-${new Date().toISOString().split('T')[0]}.csv`;
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function formatSource(value) {
@@ -1087,6 +1277,14 @@ function bindEvents() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    });
+  }
+  if (els.downloadCsvBtn) {
+    els.downloadCsvBtn.addEventListener('click', () => {
+      if (!state.userJson) {
+        return;
+      }
+      baixarCsvDoJson(state.userJson);
     });
   }
   if (els.reportPdfBtn) {
