@@ -1,6 +1,19 @@
 const MONITOR_ALARM = 'monitor-alerts';
 const MONITOR_INTERVAL_MIN = 1;
 
+function mostrarNotificacao({ title, message }) {
+  if (!chrome?.notifications?.create) {
+    return;
+  }
+  const id = `ponto-alerta-${Date.now()}`;
+  chrome.notifications.create(id, {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: title || 'Aviso',
+    message: message || ''
+  });
+}
+
 function parseTimeToMinutes(time) {
   if (!time || typeof time !== 'string') {
     return null;
@@ -238,7 +251,12 @@ chrome.alarms.onAlarm.addListener(alarm => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === 'monitor_check_now') {
+  if (message?.type === 'show_notification') {
+    mostrarNotificacao({ title: message.title, message: message.message });
+    sendResponse({ ok: true });
+    return false;
+  }
+if (message?.type === 'monitor_check_now') {
     verificarAlertas()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));

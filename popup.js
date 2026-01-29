@@ -1808,7 +1808,14 @@ function verificarAlertasJornada() {
       const hoje = new Date().toISOString().split('T')[0];
     if (minutosAgora >= fim && alertaSaidaMostradoEm !== hoje) {
       alertaSaidaMostradoEm = hoje;
-      showMessage('Horario de saida ultrapassado. Nao esqueça de registrar a saida.', 'Aviso');
+      const horarioFim = jornadaConfigAtual.fim ? ` ${jornadaConfigAtual.fim}` : '';
+      const tituloAviso = `Aviso: Fim da jornada${horarioFim}`;
+      const aviso = 'Horario de saida ultrapassado. Nao esqueça de registrar a saida.';
+      abrirMessageModal(tituloAviso, aviso, false, {
+        hideActions: true,
+        hideClose: false
+      });
+      notificarSeSegundoPlano(tituloAviso, aviso);
       void registrarAlertaMonitoramento('fim_jornada', {
         horarioFim: jornadaConfigAtual.fim || ''
       });
@@ -1826,7 +1833,13 @@ function verificarAlertasJornada() {
         const hoje = new Date().toISOString().split('T')[0];
         if (alertaSemSaidaMostradoEm !== hoje) {
           alertaSemSaidaMostradoEm = hoje;
-          showMessage(`Falta registrar a saida. Ja passaram ${limiteHoras}h desde a entrada.`, 'Aviso');
+          const tituloAviso = `Aviso: Sem saida (${limiteHoras}h)`;
+          const aviso = `Falta registrar a saida. Ja passaram ${limiteHoras}h desde a entrada.`;
+          abrirMessageModal(tituloAviso, aviso, false, {
+            hideActions: true,
+            hideClose: false
+          });
+          notificarSeSegundoPlano(tituloAviso, aviso);
           void registrarAlertaMonitoramento('sem_saida', {
             limiteHoras
           });
@@ -2680,6 +2693,21 @@ function showMessageSemCancelar(texto, titulo) {
   });
 }
 
+
+function notificarSeSegundoPlano(titulo, texto) {
+  if (!chrome?.runtime?.sendMessage || !document) {
+    return;
+  }
+  const ativo = !document.hidden && (!document.hasFocus || document.hasFocus());
+  if (ativo) {
+    return;
+  }
+  chrome.runtime.sendMessage({
+    type: 'show_notification',
+    title: titulo || 'Aviso',
+    message: texto || ''
+  });
+}
 async function carregarSenhaLogin() {
   const data = await chrome.storage.local.get([
     'loginPasswordHash',

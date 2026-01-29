@@ -7,7 +7,8 @@
     "storage",
     "identity",
     "geolocation",
-    "alarms"
+    "alarms",
+    "notifications"
   ],
   "oauth2": {
     "client_id": "605657774443-dik3rfdiomvbsaq9mojau0ttliob4ivr.apps.googleusercontent.com",
