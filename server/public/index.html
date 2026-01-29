@@ -62,6 +62,7 @@
           <span class="status-dot" id="streamDot"></span>
           <span id="streamStatus">Conectando</span>
         </div>
+        <button class="btn ghost theme-btn" id="themeToggleBtn" aria-pressed="false" aria-label="Alternar tema">🌙</button>
         <button class="btn ghost" id="refreshBtn">Atualizar</button>
         <button class="btn outline" id="logoutBtn">Sair</button>
       </div>
@@ -221,7 +222,7 @@
                   <tbody id="pointsTableBody"></tbody>
                 </table>
               </div>
-              <details class="points-raw">
+              <details class="points-raw" id="pointsRawWrap" hidden>
                 <summary>JSON completo</summary>
                 <pre id="pointsRaw"></pre>
               </details>

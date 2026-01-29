@@ -1,6 +1,7 @@
 const els = {
   streamStatus: document.getElementById('streamStatus'),
   streamDot: document.getElementById('streamDot'),
+  themeToggleBtn: document.getElementById('themeToggleBtn'),
   refreshBtn: document.getElementById('refreshBtn'),
   activeSessions: document.getElementById('activeSessions'),
   activeSessionsMeta: document.getElementById('activeSessionsMeta'),
@@ -42,6 +43,7 @@ const els = {
   pointsSummary: document.getElementById('pointsSummary'),
   pointsTableBody: document.getElementById('pointsTableBody'),
   pointsRaw: document.getElementById('pointsRaw'),
+  pointsRawWrap: document.getElementById('pointsRawWrap'),
   downloadJsonBtn: document.getElementById('downloadJsonBtn'),
   reportPdfBtn: document.getElementById('reportPdfBtn'),
   downloadCsvBtn: document.getElementById('downloadCsvBtn')
@@ -108,6 +110,7 @@ const LOGIN_FAILURE_REASONS = {
 };
 const SCROLL_LOCK_MIN = 12;
 const ACTIVE_USERS_SCROLL_MIN = 30;
+const THEME_STORAGE_KEY = 'monitor_theme';
 
 function escapeHtml(value) {
   return String(value || '')
@@ -174,6 +177,27 @@ function setLoadingVisible(show, message) {
   if (els.loadingText && message) {
     els.loadingText.textContent = message;
   }
+}
+
+function applyTheme(mode) {
+  const isDark = mode === 'dark';
+  document.body.classList.toggle('dark-mode', isDark);
+  if (els.themeToggleBtn) {
+    els.themeToggleBtn.textContent = isDark ? '☀️' : '🌙';
+    els.themeToggleBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+  }
+}
+
+function initTheme() {
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY) || 'light';
+  applyTheme(saved);
+}
+
+function toggleTheme() {
+  const isDark = document.body.classList.contains('dark-mode');
+  const next = isDark ? 'light' : 'dark';
+  window.localStorage.setItem(THEME_STORAGE_KEY, next);
+  applyTheme(next);
 }
 
 function setActiveTab(tabName) {
@@ -416,13 +440,16 @@ function clearPointsView() {
     els.pointsTableBody.innerHTML = '';
   }
   if (els.pointsRaw) {
-    els.pointsRaw.textContent = '';
+    els.pointsRaw.textContent = 'Carregue um JSON para visualizar o conteudo completo.';
   }
   if (els.pointsUser) {
     els.pointsUser.textContent = 'Usuário';
   }
   if (els.pointsMeta) {
     els.pointsMeta.textContent = '';
+  }
+  if (els.pointsRawWrap) {
+    els.pointsRawWrap.hidden = true;
   }
   state.selectedUserKey = '';
   state.userJson = null;
@@ -550,6 +577,9 @@ function renderPointsData(userKey, data) {
 
   if (els.pointsRaw) {
     els.pointsRaw.textContent = JSON.stringify(data, null, 2);
+  }
+  if (els.pointsRawWrap) {
+    els.pointsRawWrap.hidden = false;
   }
 
   if (els.downloadJsonBtn) {
@@ -1206,6 +1236,11 @@ function bindEvents() {
       window.open(buildExportUrl(), '_blank');
     });
   }
+  if (els.themeToggleBtn) {
+    els.themeToggleBtn.addEventListener('click', () => {
+      toggleTheme();
+    });
+  }
   if (els.loginBtn) {
     els.loginBtn.addEventListener('click', () => {
       handleLoginSubmit().catch(() => {});
@@ -1301,6 +1336,7 @@ function bindEvents() {
 async function init() {
   initApiKey();
   initDashboardToken();
+  initTheme();
   bindEvents();
   setActiveTab('monitor');
   authConfig = await fetchAuthConfig();
