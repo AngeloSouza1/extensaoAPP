@@ -1297,7 +1297,10 @@ async function simularJornada() {
     `Carga diaria estimada: ${cargaTexto}`
   ].join('\n');
 
-  await showMessage(mensagem, 'Simular jornada');
+  await abrirMessageModal('Simular jornada', mensagem, false, {
+    hideActions: true,
+    hideClose: false
+  });
 }
 
 function aplicarEstadoJornada(ativo, config) {
@@ -3162,14 +3165,40 @@ async function efetuarLogin() {
     await showMessage('Informe a senha.', 'Login');
     return;
   }
-  const hash = await gerarHashPBKDF2(senha, loginPasswordSalt, loginPasswordIterations);
-  if (hash !== loginPasswordHash) {
-    await showMessage('Senha incorreta.', 'Login');
+  const iterations = Number(loginPasswordIterations) || PBKDF2_ITERATIONS;
+  loginPasswordIterations = iterations;
+  let hash = '';
+  try {
+    hash = await gerarHashPBKDF2(senha, loginPasswordSalt, iterations);
+  } catch (error) {
+    await showMessage('Nao foi possivel validar a senha.', 'Login');
     void enviarEventoMonitoramento('login_failure', {
-      reason: 'invalid_password',
+      reason: 'password_check_failed',
       username: nome
     });
     return;
+  }
+  if (hash !== loginPasswordHash) {
+    if (loginPasswordDefault && senha === LOGIN_DEFAULT_PASSWORD) {
+      const novoSalt = gerarSaltBase64();
+      const novoHash = await gerarHashPBKDF2(LOGIN_DEFAULT_PASSWORD, novoSalt, PBKDF2_ITERATIONS);
+      await chrome.storage.local.set({
+        loginPasswordHash: novoHash,
+        loginPasswordSalt: novoSalt,
+        loginPasswordIterations: PBKDF2_ITERATIONS,
+        loginPasswordDefault: true
+      });
+      loginPasswordHash = novoHash;
+      loginPasswordSalt = novoSalt;
+      loginPasswordIterations = PBKDF2_ITERATIONS;
+    } else {
+      await showMessage('Senha incorreta.', 'Login');
+      void enviarEventoMonitoramento('login_failure', {
+        reason: 'invalid_password',
+        username: nome
+      });
+      return;
+    }
   }
   const cryptoOk = await prepararCriptografiaUsuarioAtual({ senha, allowPrompt: false });
   if (!cryptoOk) {
@@ -3197,6 +3226,7 @@ async function efetuarLogin() {
   });
   atualizarUserDisplay();
   await recarregarDadosUsuarioAtual();
+  fecharMessageModal(true);
   fecharLoginModal();
   void registrarLocalizacaoLogin();
   await salvarMonitorEstadoAtual();
