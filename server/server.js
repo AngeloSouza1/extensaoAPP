@@ -15,6 +15,7 @@ const USER_JSON_DIR = process.env.MONITOR_USER_JSON_DIR || path.join(__dirname, 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 const ACTIVE_SESSION_TTL_MIN = Number(process.env.MONITOR_SESSION_TTL_MIN) || 60;
+const SINGLE_SESSION_ONLY = String(process.env.MONITOR_SINGLE_SESSION || '1') !== '0';
 
 const app = express();
 app.set('trust proxy', true);
@@ -155,6 +156,25 @@ const findActiveSessionsByUserDeviceStmt = db.prepare(`
   SELECT id
   FROM sessions
   WHERE user_key = ? AND device_id = ? AND ended_at IS NULL;
+`);
+
+const findActiveSessionByUserOtherDeviceStmt = db.prepare(`
+  SELECT device_id, device_name, last_event_at
+  FROM sessions
+  WHERE user_key = ? AND device_id != ? AND ended_at IS NULL
+  ORDER BY last_event_at DESC
+  LIMIT 1;
+`);
+
+const findActiveSessionByUserOtherDeviceWithTtlStmt = db.prepare(`
+  SELECT device_id, device_name, last_event_at
+  FROM sessions
+  WHERE user_key = ?
+    AND device_id != ?
+    AND ended_at IS NULL
+    AND last_event_at >= ?
+  ORDER BY last_event_at DESC
+  LIMIT 1;
 `);
 
 const updateSessionActivityStmt = db.prepare(`
@@ -573,6 +593,38 @@ app.get('/api/health', requireDashboardAuth, (req, res) => {
     ok: true,
     now: new Date().toISOString()
   });
+});
+
+app.post('/api/sessions/claim', requireEventAuth, (req, res) => {
+  if (!SINGLE_SESSION_ONLY) {
+    return res.json({ ok: true, enforced: false });
+  }
+  const payload = req.body || {};
+  const user = payload.user || {};
+  const device = payload.device || {};
+  const userKey = normalizeUserKey(user.key || '');
+  const deviceId = String(device.id || '').trim();
+  if (!userKey || !deviceId) {
+    return res.status(400).json({ error: 'user_device_required' });
+  }
+
+  const threshold = getActiveSessionThresholdIso();
+  const active = threshold
+    ? findActiveSessionByUserOtherDeviceWithTtlStmt.get(userKey, deviceId, threshold)
+    : findActiveSessionByUserOtherDeviceStmt.get(userKey, deviceId);
+
+  if (active) {
+    return res.status(409).json({
+      error: 'session_conflict',
+      active: {
+        deviceId: active.device_id || '',
+        deviceName: active.device_name || '',
+        lastEventAt: active.last_event_at || ''
+      }
+    });
+  }
+
+  return res.json({ ok: true, enforced: true });
 });
 
 app.post('/api/events', requireEventAuth, (req, res) => {

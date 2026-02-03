@@ -103,6 +103,9 @@ const LOGIN_FAILURE_REASONS = {
   user_not_registered: 'Usuário não cadastrado',
   invalid_password: 'Senha incorreta',
   crypto_unlock_failed: 'Falha ao desbloquear dados',
+  session_conflict: 'Usuário já está logado em outro dispositivo',
+  server_unreachable: 'Servidor indisponível para validar sessão',
+  server_error: 'Falha ao validar sessão no servidor',
   google_oauth_not_configured: 'OAuth Google não configurado',
   google_token_failed: 'Falha ao obter token Google',
   google_profile_failed: 'Falha ao buscar perfil Google'
@@ -785,9 +788,11 @@ function buildDetailsLines(event) {
   const details = event.payload?.details || {};
   const lines = [];
   if (event.type === 'login_failure') {
+    const rawReason = details.reason || details.motivo || '';
+    const reasonKey = String(rawReason).trim().toLowerCase();
     lines.push({
       label: 'Motivo',
-      value: LOGIN_FAILURE_REASONS[details.reason] || details.reason || 'desconhecido'
+      value: LOGIN_FAILURE_REASONS[reasonKey] || rawReason || 'desconhecido'
     });
     if (details.username) {
       lines.push({ label: 'Usuário', value: details.username });

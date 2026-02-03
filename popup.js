@@ -103,6 +103,7 @@ const userLocation = document.getElementById('userLocation');
 const loginModal = document.getElementById('loginModal');
 const loginTitle = document.getElementById('loginTitle');
 const loginModeHint = document.getElementById('loginModeHint');
+const loginError = document.getElementById('loginError');
 const loginName = document.getElementById('loginName');
 const loginPasswordField = document.getElementById('loginPasswordField');
 const loginPasswordLabel = document.getElementById('loginPasswordLabel');
@@ -1479,6 +1480,54 @@ function obterMonitorUrlBase(url) {
   return valor.replace(/\/+$/, '');
 }
 
+async function validarSessaoUnicaServidor(user) {
+  if (!monitorConfigAtual?.url) {
+    return { ok: true, skipped: 'monitor_url' };
+  }
+  const baseUrl = obterMonitorUrlBase(monitorConfigAtual.url);
+  if (!baseUrl) {
+    return { ok: true, skipped: 'monitor_url' };
+  }
+  const deviceId = monitorConfigAtual.deviceId || '';
+  if (!deviceId) {
+    return { ok: true, skipped: 'device_missing' };
+  }
+  try {
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (monitorConfigAtual.apiKey) {
+      headers['X-API-Key'] = monitorConfigAtual.apiKey;
+    }
+    const response = await fetch(`${baseUrl}/api/sessions/claim`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        user: {
+          key: user?.key || '',
+          name: user?.name || '',
+          email: user?.email || '',
+          provider: user?.provider || ''
+        },
+        device: {
+          id: deviceId,
+          name: monitorConfigAtual.deviceName || ''
+        }
+      })
+    });
+    if (response.ok) {
+      return { ok: true };
+    }
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 409 && data?.error === 'session_conflict') {
+      return { ok: false, reason: 'session_conflict', active: data.active || {} };
+    }
+    return { ok: false, reason: 'server_error', status: response.status };
+  } catch (error) {
+    return { ok: false, reason: 'server_unreachable' };
+  }
+}
+
 function lerMonitorConfigModal() {
   return {
     ativo: monitorEnabled?.checked || false,
@@ -2786,6 +2835,23 @@ function showMessageSemCancelar(texto, titulo) {
   });
 }
 
+function setLoginError(message) {
+  if (!loginError) {
+    return;
+  }
+  if (!message) {
+    loginError.textContent = '';
+    loginError.classList.add('hidden');
+    return;
+  }
+  loginError.textContent = message;
+  loginError.classList.remove('hidden');
+}
+
+function clearLoginError() {
+  setLoginError('');
+}
+
 
 function notificarSeSegundoPlano(titulo, texto) {
   if (!chrome?.runtime?.sendMessage || !document) {
@@ -2823,6 +2889,7 @@ function atualizarLoginModalCampos() {
   if (loginTitle) {
     loginTitle.textContent = 'Entrar';
   }
+  clearLoginError();
   if (loginModeHint) {
     if (loginPasswordDefault && temSenha) {
       loginModeHint.textContent = `Primeiro acesso: usuario ${LOGIN_DEFAULT_USER} e senha ${LOGIN_DEFAULT_PASSWORD}.`;
@@ -3117,6 +3184,8 @@ async function obterPerfilGoogle(token) {
   throw ultimoErro || new Error('Falha ao buscar perfil do Google.');
 }
 
+const LOGIN_MESSAGE_STORAGE_KEY = 'loginMessagePending';
+
 async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
   if (!oauthGoogleConfigurado()) {
     if (interactive) {
@@ -3125,7 +3194,7 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
     void enviarEventoMonitoramento('login_failure', {
       reason: 'google_oauth_not_configured'
     });
-    return false;
+    return { ok: false, reason: 'google_oauth_not_configured' };
   }
 
   let token = null;
@@ -3154,7 +3223,7 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
       reason: 'google_token_failed',
       error: error?.message || ''
     });
-    return false;
+    return { ok: false, reason: 'google_token_failed' };
   }
 
   let perfil = null;
@@ -3180,14 +3249,65 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
         void enviarEventoMonitoramento('login_failure', {
           reason: 'google_profile_failed'
         });
-        return false;
+        return { ok: false, reason: 'google_profile_failed' };
       }
     } else {
       void enviarEventoMonitoramento('login_failure', {
         reason: 'google_profile_failed'
       });
-      return false;
+      return { ok: false, reason: 'google_profile_failed' };
     }
+  }
+
+  const userKey = obterUsuarioChavePorProfile({
+    provider: 'google',
+    email: perfil.email || '',
+    name: perfil.name || perfil.given_name || ''
+  });
+  const sessaoOk = await validarSessaoUnicaServidor({
+    key: userKey,
+    name: perfil.name || perfil.given_name || '',
+    email: perfil.email || '',
+    provider: 'google'
+  });
+  if (!sessaoOk.ok) {
+    let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
+    if (sessaoOk.reason === 'session_conflict') {
+      mensagem = 'Este usuário já está logado em outro navegador/dispositivo.';
+      if (sessaoOk.active?.deviceName) {
+        mensagem += ` Dispositivo: ${sessaoOk.active.deviceName}.`;
+      }
+      if (sessaoOk.active?.lastEventAt) {
+        mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
+      }
+      mensagem += ' Faça logout lá para continuar.';
+    }
+    if (interactive) {
+      if (loginModal && !loginModal.classList.contains('open')) {
+        abrirLoginModal();
+      }
+      setLoginError(mensagem);
+      const deveGuardar =
+        !document ||
+        document.hidden ||
+        (document.hasFocus ? !document.hasFocus() : false);
+      if (deveGuardar && chrome?.storage?.local?.set) {
+        chrome.storage.local.set({
+          [LOGIN_MESSAGE_STORAGE_KEY]: {
+            title: 'Login',
+            message: mensagem,
+            at: new Date().toISOString()
+          }
+        });
+      }
+      notificarSeSegundoPlano('Login', mensagem);
+    }
+    void enviarEventoMonitoramento('login_failure', {
+      reason: sessaoOk.reason || 'session_conflict',
+      provider: 'google',
+      username: perfil.email || perfil.name || ''
+    });
+    return { ok: false, reason: sessaoOk.reason || 'session_conflict' };
   }
 
   usuarioProvider = 'google';
@@ -3215,7 +3335,7 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
     void enviarEventoMonitoramento('login_failure', {
       reason: 'crypto_unlock_failed'
     });
-    return false;
+    return { ok: false, reason: 'crypto_unlock_failed' };
   }
 
   const storagePayload = {
@@ -3241,14 +3361,15 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
   }
   await salvarMonitorEstadoAtual();
   void enviarEventoMonitoramento('login_success', { source: interactive ? 'manual' : 'auto_login' });
-  return true;
+  return { ok: true };
 }
 
 async function iniciarLoginGoogle() {
   await chrome.storage.local.set({ googleAuthPending: true });
-  const ok = await loginComGoogle({ interactive: true, clearPending: true });
-  if (!ok) {
-    await chrome.storage.local.set({ googleAuthPending: true });
+  const result = await loginComGoogle({ interactive: true, clearPending: true });
+  if (!result.ok) {
+    const manterPending = result.reason !== 'session_conflict';
+    await chrome.storage.local.set({ googleAuthPending: manterPending });
   }
 }
 
@@ -3280,7 +3401,15 @@ async function carregarUsuario() {
   await carregarSenhaLogin();
   await carregarCriptografiaConfig();
   await carregarChaveCriptoSessao();
-  const data = await chrome.storage.local.get(['userProfile', 'googleAuthPending']);
+  const data = await chrome.storage.local.get(['userProfile', 'googleAuthPending', LOGIN_MESSAGE_STORAGE_KEY]);
+  if (data[LOGIN_MESSAGE_STORAGE_KEY]?.message) {
+    const aviso = data[LOGIN_MESSAGE_STORAGE_KEY];
+    await chrome.storage.local.remove(LOGIN_MESSAGE_STORAGE_KEY);
+    if (loginModal && !loginModal.classList.contains('open')) {
+      abrirLoginModal();
+    }
+    setLoginError(aviso.message);
+  }
   const googleAuthPending = Boolean(data.googleAuthPending);
   let profile = data.userProfile || null;
 
@@ -3309,8 +3438,8 @@ async function carregarUsuario() {
     await chrome.storage.local.set({ userProfile: profile });
   }
   if (googleAuthPending) {
-    const ok = await loginComGoogle({ interactive: false, clearPending: true });
-    if (ok) {
+    const result = await loginComGoogle({ interactive: false, clearPending: true });
+    if (result.ok) {
       return;
     }
   }
@@ -3350,14 +3479,14 @@ async function carregarUsuario() {
       return;
     }
     if (googleAuthPending) {
-      const ok = await loginComGoogle({ interactive: false, autoLogin: usuarioAutoLogin, clearPending: true });
-      if (ok) {
+      const result = await loginComGoogle({ interactive: false, autoLogin: usuarioAutoLogin, clearPending: true });
+      if (result.ok) {
         return;
       }
     }
     if (usuarioAutoLogin) {
-      const ok = await loginComGoogle({ interactive: false, autoLogin: usuarioAutoLogin });
-      if (ok) {
+      const result = await loginComGoogle({ interactive: false, autoLogin: usuarioAutoLogin });
+      if (result.ok) {
         return;
       }
     }
@@ -3365,6 +3494,43 @@ async function carregarUsuario() {
     await recarregarDadosUsuarioAtual();
     abrirLoginModal();
     return;
+  }
+
+  if (usuarioAutoLogin) {
+    const userKey = obterUsuarioChavePorProfile({ provider: 'local', name: usuarioNome, email: '' });
+    const sessaoOk = await validarSessaoUnicaServidor({
+      key: userKey,
+      name: usuarioNome || '',
+      email: '',
+      provider: 'local'
+    });
+    if (!sessaoOk.ok) {
+      let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
+      if (sessaoOk.reason === 'session_conflict') {
+        mensagem = 'Este usuário já está logado em outro navegador/dispositivo.';
+        if (sessaoOk.active?.deviceName) {
+          mensagem += ` Dispositivo: ${sessaoOk.active.deviceName}.`;
+        }
+        if (sessaoOk.active?.lastEventAt) {
+          mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
+        }
+        mensagem += ' Faça logout lá para continuar.';
+      }
+      if (loginModal && !loginModal.classList.contains('open')) {
+        abrirLoginModal();
+      }
+      setLoginError(mensagem);
+      usuarioAutoLogin = false;
+      usuarioLogado = false;
+      await chrome.storage.local.set({
+        userProfile: {
+          name: usuarioNome,
+          autoLogin: false,
+          loggedIn: false,
+          provider: usuarioProvider
+        }
+      });
+    }
   }
 
   usuarioLogado = usuarioAutoLogin;
@@ -3443,6 +3609,7 @@ function abrirLoginModal() {
   if (loginAuto) {
     loginAuto.checked = usuarioAutoLogin;
   }
+  clearLoginError();
   atualizarLoginModalCampos();
   if (loginGoogleBtn) {
     loginGoogleBtn.disabled = !oauthGoogleConfigurado();
@@ -3535,6 +3702,32 @@ async function efetuarLogin() {
     await showMessage('Nao foi possivel desbloquear os dados.', 'Criptografia');
     void enviarEventoMonitoramento('login_failure', {
       reason: 'crypto_unlock_failed',
+      username: nome
+    });
+    return;
+  }
+  const userKey = obterUsuarioChavePorProfile({ provider: 'local', name: nome, email: '' });
+  const sessaoOk = await validarSessaoUnicaServidor({
+    key: userKey,
+    name: nome,
+    email: '',
+    provider: 'local'
+  });
+  if (!sessaoOk.ok) {
+    let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
+    if (sessaoOk.reason === 'session_conflict') {
+      mensagem = 'Este usuário já está logado em outro navegador/dispositivo.';
+      if (sessaoOk.active?.deviceName) {
+        mensagem += ` Dispositivo: ${sessaoOk.active.deviceName}.`;
+      }
+      if (sessaoOk.active?.lastEventAt) {
+        mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
+      }
+      mensagem += ' Faça logout lá para continuar.';
+    }
+    setLoginError(mensagem);
+    void enviarEventoMonitoramento('login_failure', {
+      reason: sessaoOk.reason || 'session_conflict',
       username: nome
     });
     return;
