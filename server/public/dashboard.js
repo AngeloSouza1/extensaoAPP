@@ -6,7 +6,6 @@ const els = {
   activeSessions: document.getElementById('activeSessions'),
   activeSessionsMeta: document.getElementById('activeSessionsMeta'),
   loginsToday: document.getElementById('loginsToday'),
-  alertsToday: document.getElementById('alertsToday'),
   lastEventAt: document.getElementById('lastEventAt'),
   filterQuery: document.getElementById('filterQuery'),
   filterType: document.getElementById('filterType'),
@@ -950,7 +949,6 @@ function resetDashboardUI() {
   if (els.activeSessions) els.activeSessions.textContent = '0';
   if (els.activeSessionsMeta) els.activeSessionsMeta.textContent = '0 usuários';
   if (els.loginsToday) els.loginsToday.textContent = '0';
-  if (els.alertsToday) els.alertsToday.textContent = '0';
   if (els.lastEventAt) els.lastEventAt.textContent = '--';
   setStreamStatus('error', 'Desconectado');
 }
@@ -1032,9 +1030,6 @@ async function fetchOverview() {
   }
   if (els.loginsToday) {
     els.loginsToday.textContent = data.loginsToday ?? 0;
-  }
-  if (els.alertsToday) {
-    els.alertsToday.textContent = data.alertsToday ?? 0;
   }
   if (els.lastEventAt) {
     els.lastEventAt.textContent = data.lastEventAt ? formatDateTime(data.lastEventAt) : '--';
@@ -1181,6 +1176,9 @@ function startStream() {
       const data = JSON.parse(event.data);
       if (matchesFilters(data, state.filters)) {
         addNewEvent(data);
+      }
+      if (data?.type === 'alerta') {
+        fetchOverview().catch(() => {});
       }
       scheduleRefresh();
     } catch (error) {

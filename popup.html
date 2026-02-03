@@ -232,8 +232,19 @@
           <span>ID do dispositivo</span>
           <input type="text" id="monitorDeviceId" readonly>
         </label>
+        <div class="monitor-status" id="monitorStatus">
+          <div><strong>Última checagem:</strong> <span id="monitorLastCheck">--</span></div>
+          <div><strong>Estado:</strong> <span id="monitorState">--</span></div>
+          <div><strong>Entrada atual:</strong> <span id="monitorEntryAt">--</span></div>
+          <div><strong>Fim jornada:</strong> <span id="monitorScheduleEnd">--</span></div>
+          <div><strong>Sem saída:</strong> <span id="monitorMissingExitCfg">--</span></div>
+          <div><strong>Último alerta:</strong> <span id="monitorLastAlert">--</span></div>
+          <div><strong>Alarme ativo:</strong> <span id="monitorAlarmStatus">--</span></div>
+        </div>
         <div class="config-actions">
           <button id="monitorTestBtn" class="btn btn-secondary">Testar conexão</button>
+          <button id="monitorCheckBtn" class="btn btn-secondary">Forçar checagem</button>
+          <button id="monitorNotifyTestBtn" class="btn btn-secondary">Testar notificação</button>
           <button id="monitorSaveBtn" class="btn btn-primary">Salvar</button>
         </div>
       </div>

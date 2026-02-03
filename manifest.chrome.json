@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ponto Eletrônico",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmuA32Cy37GeIY0YyucpIeImRUVqrIeWOPteBYwM5yFahvSgZytAVepENTV4z4HKhNkSxgTv6pG9F99wInC0+NaMqJYOimXizINeN3eosCoAdfWG+sLRkSAl9rQVZIC74zugK7OEjYSiv1x+lz2QNYi4tM8AH9+DSOd8HTIz2cohf6iNszJqj4DgdI6zhkpaDHHNlUJy1m6t/yTe2fUsQYA/jWbetLHcmMOE8vhdqAmtAAl0PHMLc6O1vYHotyzs+pe/sFzFLV4S0y2Fr8D2IqIlffCZVawuC5JV5PMWlQiL8tHIisZibB4Y7DfWIo4iL+zx6YxmrcytyZDZZC6lSjwIDAQAB",
   "version": "1.0.0",
   "description": "Sistema profissional de registro de ponto eletrônico",
   "permissions": [

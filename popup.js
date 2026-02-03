@@ -58,7 +58,17 @@ const monitorApiKeyInput = document.getElementById('monitorApiKey');
 const monitorDeviceNameInput = document.getElementById('monitorDeviceName');
 const monitorDeviceIdInput = document.getElementById('monitorDeviceId');
 const monitorTestBtn = document.getElementById('monitorTestBtn');
+const monitorCheckBtn = document.getElementById('monitorCheckBtn');
+const monitorNotifyTestBtn = document.getElementById('monitorNotifyTestBtn');
 const monitorSaveBtn = document.getElementById('monitorSaveBtn');
+const monitorStatus = document.getElementById('monitorStatus');
+const monitorLastCheck = document.getElementById('monitorLastCheck');
+const monitorState = document.getElementById('monitorState');
+const monitorEntryAt = document.getElementById('monitorEntryAt');
+const monitorScheduleEnd = document.getElementById('monitorScheduleEnd');
+const monitorMissingExitCfg = document.getElementById('monitorMissingExitCfg');
+const monitorLastAlert = document.getElementById('monitorLastAlert');
+const monitorAlarmStatus = document.getElementById('monitorAlarmStatus');
 const passwordModal = document.getElementById('passwordModal');
 const passwordClose = document.getElementById('passwordClose');
 const passwordCurrentField = document.getElementById('passwordCurrentField');
@@ -138,6 +148,9 @@ const LOGIN_DEFAULT_USER = 'admin';
 const LOGIN_DEFAULT_PASSWORD = 'admin';
 const REGISTRO_PONTO_TIPOS = new Set(['entrada', 'saida_almoco', 'retorno_almoco', 'saida']);
 const MONITOR_QUEUE_LIMIT = 200;
+const GOOGLE_WEB_CLIENT_ID =
+  '605657774443-sdcp0ji9831vv7n8190hlfabjcnvmtt8.apps.googleusercontent.com';
+const GOOGLE_WEB_TOKEN_KEY = 'googleWebToken';
 
 // Estado atual
 // Estados: 'aguardando', 'trabalhando', 'almoco', 'trabalhando_apos_almoco'
@@ -1412,6 +1425,7 @@ function fecharConfigModal() {
   if (!configModal) {
     return;
   }
+  void salvarJornadaConfig();
   configModal.classList.remove('open');
   configModal.setAttribute('aria-hidden', 'true');
 }
@@ -1511,6 +1525,83 @@ async function testarMonitorConexao() {
   }
 }
 
+async function testarNotificacaoNavegador() {
+  if (!chrome?.runtime?.sendMessage) {
+    await showMessage('Nao foi possivel enviar a notificacao.', 'Notificacao');
+    return;
+  }
+  chrome.runtime.sendMessage(
+    {
+      type: 'show_notification',
+      title: 'Teste de notificacao',
+      message: 'Se voce esta vendo isso, as notificacoes estao funcionando.'
+    },
+    () => {
+      showMessageSemCancelar('Notificacao enviada.', 'Notificacao');
+    }
+  );
+}
+
+async function forcarChecagemMonitoramento() {
+  if (!chrome?.runtime?.sendMessage) {
+    await showMessage('Nao foi possivel iniciar a checagem.', 'Monitoramento');
+    return;
+  }
+  chrome.runtime.sendMessage({ type: 'monitor_check_now' }, () => {
+    setTimeout(() => {
+      atualizarStatusMonitoramento();
+    }, 300);
+    showMessageSemCancelar('Checagem solicitada.', 'Monitoramento');
+  });
+}
+
+async function atualizarStatusMonitoramento() {
+  if (!monitorStatus) {
+    return;
+  }
+  const data = await chrome.storage.local.get([
+    'monitorLastCheckAt',
+    'monitorLastCheckState',
+    'monitorLastAlertAt',
+    'monitorLastAlertTitle'
+  ]);
+  const ultimoCheck = data.monitorLastCheckAt ? formatarDataHoraCurta(data.monitorLastCheckAt) : '--';
+  const state = data.monitorLastCheckState || {};
+  const ultimoAlertTitle = data.monitorLastAlertTitle || '';
+  const ultimoAlertAt = data.monitorLastAlertAt ? formatarDataHoraCurta(data.monitorLastAlertAt) : '';
+  if (monitorLastCheck) {
+    monitorLastCheck.textContent = ultimoCheck || '--';
+  }
+  if (monitorState) {
+    monitorState.textContent = state.estado || '--';
+  }
+  if (monitorEntryAt) {
+    monitorEntryAt.textContent = state.currentEntryTimestamp
+      ? formatarDataHoraCurta(state.currentEntryTimestamp)
+      : '--';
+  }
+  if (monitorScheduleEnd) {
+    monitorScheduleEnd.textContent = state.jornadaFim || '--';
+  }
+  if (monitorMissingExitCfg) {
+    monitorMissingExitCfg.textContent = state.alertaSemSaidaAtivo
+      ? `${state.alertaSemSaidaHoras || 0}h`
+      : 'desligado';
+  }
+  if (monitorLastAlert) {
+    monitorLastAlert.textContent = ultimoAlertTitle
+      ? `${ultimoAlertTitle} · ${ultimoAlertAt || '--'}`
+      : '--';
+  }
+  if (monitorAlarmStatus && chrome?.alarms?.get) {
+    chrome.alarms.get('monitor-alerts', alarm => {
+      monitorAlarmStatus.textContent = alarm ? 'ativo' : 'inativo';
+    });
+  } else if (monitorAlarmStatus) {
+    monitorAlarmStatus.textContent = '--';
+  }
+}
+
 function abrirMonitorModal() {
   if (!monitorModal) {
     return;
@@ -1518,6 +1609,7 @@ function abrirMonitorModal() {
   monitorModal.classList.add('open');
   monitorModal.setAttribute('aria-hidden', 'false');
   aplicarMonitorConfig(monitorConfigAtual);
+  atualizarStatusMonitoramento();
 }
 
 function fecharMonitorModal() {
@@ -1566,6 +1658,7 @@ async function salvarMonitorEstadoAtual() {
   await chrome.storage.local.set({
     monitorState: montarMonitorEstadoAtual()
   });
+  chrome.runtime?.sendMessage?.({ type: 'ensure_alarm' });
 }
 
 async function registrarAlertaMonitoramento(alertaTipo, detalhes) {
@@ -2796,6 +2889,105 @@ function oauthGoogleConfigurado() {
   return Boolean(clientId) && !clientId.includes('SEU_CLIENT_ID');
 }
 
+function isExpectedGoogleAuthError(message) {
+  if (!message) {
+    return false;
+  }
+  const texto = String(message).toLowerCase();
+  return (
+    texto.includes('invalid_request') ||
+    texto.includes('not supported') ||
+    texto.includes('oauth2 not granted') ||
+    texto.includes('did not approve access') ||
+    texto.includes('user did not approve access')
+  );
+}
+
+function isBraveBrowser() {
+  try {
+    if (typeof navigator === 'undefined') {
+      return false;
+    }
+    if (navigator.brave) {
+      return true;
+    }
+    const ua = navigator.userAgent || '';
+    return ua.includes('Brave');
+  } catch (error) {
+    return false;
+  }
+}
+
+function obterEscoposGoogleOAuth() {
+  if (!chrome?.runtime?.getManifest) {
+    return [
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/userinfo.profile'
+    ];
+  }
+  const manifest = chrome.runtime.getManifest();
+  const scopes = manifest?.oauth2?.scopes;
+  if (Array.isArray(scopes) && scopes.length) {
+    return scopes;
+  }
+  return [
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile'
+  ];
+}
+
+function obterGoogleWebClientId() {
+  return GOOGLE_WEB_CLIENT_ID;
+}
+
+function parseOAuthFragment(url) {
+  const hashIndex = url.indexOf('#');
+  if (hashIndex === -1) {
+    return {};
+  }
+  const fragment = url.slice(hashIndex + 1);
+  const params = new URLSearchParams(fragment);
+  return Object.fromEntries(params.entries());
+}
+
+async function obterTokenWebCache() {
+  if (!chrome?.storage?.local?.get) {
+    return null;
+  }
+  const data = await chrome.storage.local.get(GOOGLE_WEB_TOKEN_KEY);
+  const payload = data[GOOGLE_WEB_TOKEN_KEY];
+  if (!payload?.token) {
+    return null;
+  }
+  if (payload.expiresAt && Date.now() > payload.expiresAt - 60000) {
+    await chrome.storage.local.remove(GOOGLE_WEB_TOKEN_KEY);
+    return null;
+  }
+  return payload.token;
+}
+
+async function salvarTokenWebCache(token, expiresInSec) {
+  if (!chrome?.storage?.local?.set) {
+    return;
+  }
+  const expiresAt = Number.isFinite(expiresInSec) && expiresInSec > 0
+    ? Date.now() + expiresInSec * 1000
+    : null;
+  await chrome.storage.local.set({
+    [GOOGLE_WEB_TOKEN_KEY]: {
+      token,
+      expiresAt
+    }
+  });
+}
+
+async function limparTokenWebCache() {
+  if (!chrome?.storage?.local?.remove) {
+    return;
+  }
+  await chrome.storage.local.remove(GOOGLE_WEB_TOKEN_KEY);
+}
+
 function obterAuthToken(interactive) {
   return new Promise((resolve, reject) => {
     if (!chrome?.identity?.getAuthToken) {
@@ -2804,12 +2996,89 @@ function obterAuthToken(interactive) {
     }
     chrome.identity.getAuthToken({ interactive }, token => {
       if (chrome.runtime.lastError || !token) {
-        reject(chrome.runtime.lastError || new Error('Falha ao obter token.'));
+        const detalhe = chrome.runtime.lastError?.message || 'Falha ao obter token.';
+        const erro = new Error(detalhe);
+        if (!isExpectedGoogleAuthError(detalhe)) {
+          console.error('Google OAuth getAuthToken falhou:', detalhe);
+        }
+        reject(erro);
         return;
       }
       resolve(token);
     });
   });
+}
+
+function obterAuthTokenWebFlow() {
+  return new Promise((resolve, reject) => {
+    if (!chrome?.identity?.launchWebAuthFlow) {
+      reject(new Error('API de autenticacao web indisponivel.'));
+      return;
+    }
+    const clientId = obterGoogleWebClientId();
+    if (!clientId) {
+      reject(new Error('Client ID web nao configurado.'));
+      return;
+    }
+    const redirectUri = chrome.identity.getRedirectURL();
+    const scopes = obterEscoposGoogleOAuth().join(' ');
+    const authUrl =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      '&response_type=token' +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=${encodeURIComponent(scopes)}` +
+      '&prompt=consent' +
+      '&include_granted_scopes=true';
+
+    chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true }, responseUrl => {
+      if (chrome.runtime.lastError || !responseUrl) {
+        const detalhe = chrome.runtime.lastError?.message || 'Falha ao autenticar.';
+        reject(new Error(detalhe));
+        return;
+      }
+      const params = parseOAuthFragment(responseUrl);
+      const token = params.access_token;
+      if (!token) {
+        reject(new Error('Token nao encontrado na resposta.'));
+        return;
+      }
+      const expiresIn = Number(params.expires_in || 0);
+      void salvarTokenWebCache(token, expiresIn);
+      resolve(token);
+    });
+  });
+}
+
+async function obterAuthTokenComFallback(interactive) {
+  if (!interactive) {
+    const cached = await obterTokenWebCache();
+    if (cached) {
+      return { token: cached, source: 'web_cache' };
+    }
+  }
+
+  if (interactive && isBraveBrowser()) {
+    const token = await obterAuthTokenWebFlow();
+    return { token, source: 'web' };
+  }
+
+  try {
+    const token = await obterAuthToken(interactive);
+    return { token, source: 'identity' };
+  } catch (error) {
+    const message = (error?.message || '').toLowerCase();
+    const podeFallback =
+      message.includes('invalid_request') ||
+      message.includes('not supported') ||
+      message.includes('oauth2 not granted') ||
+      message.includes('did not approve access');
+    if (interactive && podeFallback) {
+      const token = await obterAuthTokenWebFlow();
+      return { token, source: 'web' };
+    }
+    throw error;
+  }
 }
 
 function removerTokenCache(token) {
@@ -2860,14 +3129,30 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
   }
 
   let token = null;
+  let tokenSource = 'identity';
   try {
-    token = await obterAuthToken(Boolean(interactive));
+    const resultado = await obterAuthTokenComFallback(Boolean(interactive));
+    token = resultado.token;
+    tokenSource = resultado.source || 'identity';
   } catch (error) {
     if (interactive) {
-      await showMessage('Nao foi possivel autenticar com o Google.', 'Login');
+      const detalhe = error?.message ? ` (${error.message})` : '';
+      await showMessage(`Nao foi possivel autenticar com o Google.${detalhe}`, 'Login');
+    }
+    if (chrome?.storage?.local?.set) {
+      chrome.storage.local.set({
+        googleAuthLastError: {
+          message: error?.message || 'Falha ao obter token.',
+          at: new Date().toISOString()
+        }
+      });
+    }
+    if (!isExpectedGoogleAuthError(error?.message)) {
+      console.error('Google OAuth falhou:', error);
     }
     void enviarEventoMonitoramento('login_failure', {
-      reason: 'google_token_failed'
+      reason: 'google_token_failed',
+      error: error?.message || ''
     });
     return false;
   }
@@ -2877,11 +3162,17 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
     perfil = await obterPerfilGoogle(token);
   } catch (error) {
     if (token) {
-      await removerTokenCache(token);
+      if (tokenSource === 'identity') {
+        await removerTokenCache(token);
+      } else {
+        await limparTokenWebCache();
+      }
     }
     if (interactive) {
       try {
-        const novoToken = await obterAuthToken(true);
+        const novoResultado = await obterAuthTokenComFallback(true);
+        const novoToken = novoResultado.token;
+        tokenSource = novoResultado.source || tokenSource;
         perfil = await obterPerfilGoogle(novoToken);
         token = novoToken;
       } catch (retryError) {
@@ -2962,6 +3253,17 @@ async function iniciarLoginGoogle() {
 }
 
 async function logoutGoogle() {
+  try {
+    const data = await chrome.storage.local.get(GOOGLE_WEB_TOKEN_KEY);
+    const webToken = data[GOOGLE_WEB_TOKEN_KEY]?.token;
+    if (webToken) {
+      await limparTokenWebCache();
+      fetch(`https://oauth2.googleapis.com/revoke?token=${webToken}`, { method: 'POST' }).catch(() => {});
+    }
+  } catch (error) {
+    // Ignorar falhas de logout do Google para nao quebrar o fluxo local.
+  }
+
   if (!chrome?.identity?.getAuthToken) {
     return;
   }
@@ -3551,6 +3853,7 @@ function setupEventListeners() {
       missingExitHoursInput
     ].forEach(input => {
       input.addEventListener('change', salvarJornadaConfig);
+      input.addEventListener('input', salvarJornadaConfig);
     });
   }
   if (menuBtn) {
@@ -3701,6 +4004,12 @@ function setupEventListeners() {
   }
   if (monitorTestBtn) {
     monitorTestBtn.addEventListener('click', testarMonitorConexao);
+  }
+  if (monitorCheckBtn) {
+    monitorCheckBtn.addEventListener('click', forcarChecagemMonitoramento);
+  }
+  if (monitorNotifyTestBtn) {
+    monitorNotifyTestBtn.addEventListener('click', testarNotificacaoNavegador);
   }
   if (monitorModal) {
     monitorModal.addEventListener('click', (event) => {
@@ -3933,6 +4242,7 @@ async function registrarEntrada() {
     hora: registro.hora
   });
   await salvarMonitorEstadoAtual();
+  chrome.runtime?.sendMessage?.({ type: 'monitor_check_now' });
   atualizarInterface();
   await atualizarHistorico();
   await calcularHoras();

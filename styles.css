@@ -627,6 +627,23 @@ header h1 {
   margin-top: 10px;
 }
 
+.monitor-status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #cdd6e3;
+  display: grid;
+  gap: 4px;
+}
+
+.monitor-status strong {
+  color: #e6eef8;
+  font-weight: 600;
+}
+
 .config-alert-input {
   display: inline-flex;
   align-items: center;

@@ -1,5 +1,26 @@
 const MONITOR_ALARM = 'monitor-alerts';
 const MONITOR_INTERVAL_MIN = 1;
+const MAX_ALERTS_PER_DAY = 2;
+const MIN_ALERT_INTERVAL_MS = 5 * 60 * 1000;
+
+function normalizarContadorDiario(valor, hoje) {
+  if (typeof valor === 'string') {
+    return {
+      date: valor,
+      count: valor === hoje ? 1 : 0,
+      lastShownAt: null
+    };
+  }
+  if (valor && typeof valor === 'object') {
+    const date = typeof valor.date === 'string' ? valor.date : '';
+    const count = Number.isFinite(valor.count) ? valor.count : 0;
+    const lastShownAt = typeof valor.lastShownAt === 'string' ? valor.lastShownAt : null;
+    if (date === hoje) {
+      return { date, count, lastShownAt };
+    }
+  }
+  return { date: hoje, count: 0, lastShownAt: null };
+}
 
 function mostrarNotificacao({ title, message }) {
   if (!chrome?.notifications?.create) {
@@ -8,10 +29,38 @@ function mostrarNotificacao({ title, message }) {
   const id = `ponto-alerta-${Date.now()}`;
   chrome.notifications.create(id, {
     type: 'basic',
-    iconUrl: 'icons/icon128.png',
+    iconUrl: 'icons/clock128.png',
     title: title || 'Aviso',
-    message: message || ''
+    message: message || '',
+    priority: 2,
+    silent: false,
+    requireInteraction: true
   });
+}
+
+function obterTextoAlerta(alertaTipo, detalhes, usuario) {
+  const nome = usuario?.name || usuario?.nome || '';
+  const prefixo = nome ? `${nome} - ` : '';
+  if (alertaTipo === 'fim_jornada') {
+    const horario = detalhes?.horarioFim ? ` ${detalhes.horarioFim}` : '';
+    return {
+      title: `${prefixo}Aviso: Fim da jornada${horario}`,
+      message: 'Horario de saida ultrapassado. Nao esqueça de registrar a saida.'
+    };
+  }
+  if (alertaTipo === 'sem_saida') {
+    const limite = detalhes?.limiteHoras ? ` (${detalhes.limiteHoras}h)` : '';
+    return {
+      title: `${prefixo}Aviso: Sem saida${limite}`,
+      message: detalhes?.limiteHoras
+        ? `Falta registrar a saida. Ja passaram ${detalhes.limiteHoras}h desde a entrada.`
+        : 'Falta registrar a saida.'
+    };
+  }
+  return {
+    title: 'Aviso',
+    message: ''
+  };
 }
 
 function parseTimeToMinutes(time) {
@@ -37,6 +86,17 @@ function obterHojeIso() {
 async function garantirAlarme() {
   chrome.alarms.create(MONITOR_ALARM, {
     periodInMinutes: MONITOR_INTERVAL_MIN
+  });
+}
+
+function garantirAlarmeAtivo() {
+  if (!chrome?.alarms?.get) {
+    return;
+  }
+  chrome.alarms.get(MONITOR_ALARM, alarm => {
+    if (!alarm) {
+      garantirAlarme();
+    }
   });
 }
 
@@ -113,6 +173,9 @@ async function enfileirarSeNecessario(evento) {
 }
 
 async function enviarFila(config, alertSent) {
+  if (!config.ativo || !config.url) {
+    return alertSent;
+  }
   const queue = await carregarFila();
   if (!queue.length) {
     return alertSent;
@@ -139,14 +202,48 @@ async function enviarFila(config, alertSent) {
   return sentAtualizado;
 }
 
-async function registrarAlertasSent(sent) {
-  await chrome.storage.local.set({ monitorAlertSent: sent });
+async function registrarAlertasSent(sent, shown) {
+  await chrome.storage.local.set({
+    monitorAlertSent: sent,
+    monitorAlertShown: shown
+  });
 }
 
-async function enviarAlerta(config, estadoMonitor, alertSent, alertaTipo, detalhes) {
+async function enviarAlerta(config, estadoMonitor, alertSent, alertShown, alertaTipo, detalhes) {
   const hoje = obterHojeIso();
+  const alertaTexto = obterTextoAlerta(alertaTipo, detalhes, estadoMonitor?.user);
+  const estadoShown = normalizarContadorDiario(alertShown[alertaTipo], hoje);
+  const ultimoMs = estadoShown.lastShownAt ? new Date(estadoShown.lastShownAt).getTime() : 0;
+  const agoraMs = Date.now();
+  const intervaloOk = !ultimoMs || (agoraMs - ultimoMs) >= MIN_ALERT_INTERVAL_MS;
+  const limiteAtingido = estadoShown.count >= MAX_ALERTS_PER_DAY;
+  if (!limiteAtingido && intervaloOk) {
+    mostrarNotificacao(alertaTexto);
+    const atualizado = {
+      date: hoje,
+      count: estadoShown.count + 1,
+      lastShownAt: new Date().toISOString()
+    };
+    alertShown = {
+      ...alertShown,
+      [alertaTipo]: atualizado
+    };
+    await chrome.storage.local.set({
+      monitorLastAlertAt: new Date().toISOString(),
+      monitorLastAlertTitle: alertaTexto.title || 'Aviso'
+    });
+  }
   if (alertSent[alertaTipo] === hoje) {
-    return alertSent;
+    return { sent: alertSent, shown: alertShown };
+  }
+  if (!config.ativo || !config.url) {
+    return {
+      sent: {
+        ...alertSent,
+        [alertaTipo]: hoje
+      },
+      shown: alertShown
+    };
   }
   const manifest = chrome.runtime.getManifest() || {};
   const evento = {
@@ -171,69 +268,83 @@ async function enviarAlerta(config, estadoMonitor, alertSent, alertaTipo, detalh
   const ok = await enviarEvento(config, evento);
   if (!ok) {
     await enfileirarSeNecessario(evento);
-    return alertSent;
+    return { sent: alertSent, shown: alertShown };
   }
   return {
-    ...alertSent,
-    [alertaTipo]: hoje
-  };
+    sent: {
+      ...alertSent,
+      [alertaTipo]: hoje
+    },
+    shown: alertShown
+  }
 }
 
 async function verificarAlertas() {
   const config = await carregarMonitorConfig();
-  if (!config.ativo || !config.url) {
-    return;
-  }
-
   const storage = await chrome.storage.local.get([
     'monitorState',
-    'monitorAlertSent'
+    'monitorAlertSent',
+    'monitorAlertShown'
   ]);
   const estadoMonitor = storage.monitorState || {};
   const alertSent = storage.monitorAlertSent || {};
-
-  if (!estadoMonitor.user || !estadoMonitor.user.key) {
-    return;
-  }
+  let alertShown = storage.monitorAlertShown || {};
 
   const agora = new Date();
   const minutosAgora = (agora.getHours() * 60) + agora.getMinutes();
-  const estado = estadoMonitor.estado || 'aguardando';
   const currentEntryTimestamp = estadoMonitor.currentEntryTimestamp || '';
   const jornadaConfig = estadoMonitor.jornadaConfig || {};
 
   let alertSentAtualizado = await enviarFila(config, alertSent);
+  let alertShownAtualizado = alertShown;
 
-  if (jornadaConfig.ativo && currentEntryTimestamp && estado !== 'aguardando') {
+  if (jornadaConfig.ativo && currentEntryTimestamp) {
     const fim = parseTimeToMinutes(jornadaConfig.fim);
     if (fim !== null && minutosAgora >= fim) {
-      alertSentAtualizado = await enviarAlerta(
+      const res = await enviarAlerta(
         config,
         estadoMonitor,
         alertSentAtualizado,
+        alertShownAtualizado,
         'fim_jornada',
         { horarioFim: jornadaConfig.fim || '' }
       );
+      alertSentAtualizado = res.sent;
+      alertShownAtualizado = res.shown;
     }
   }
 
-  if (jornadaConfig.alertaSemSaidaAtivo && currentEntryTimestamp && estado !== 'aguardando') {
+  if (jornadaConfig.alertaSemSaidaAtivo && currentEntryTimestamp) {
     const limiteHoras = Number(jornadaConfig.alertaSemSaidaHoras) || 0;
     if (limiteHoras > 0) {
       const diffSegundos = Math.floor((agora - new Date(currentEntryTimestamp)) / 1000);
       if (diffSegundos >= limiteHoras * 3600) {
-        alertSentAtualizado = await enviarAlerta(
+        const res = await enviarAlerta(
           config,
           estadoMonitor,
           alertSentAtualizado,
+          alertShownAtualizado,
           'sem_saida',
           { limiteHoras }
         );
+        alertSentAtualizado = res.sent;
+        alertShownAtualizado = res.shown;
       }
     }
   }
 
-  await registrarAlertasSent(alertSentAtualizado);
+  await registrarAlertasSent(alertSentAtualizado, alertShownAtualizado);
+  await chrome.storage.local.set({
+    monitorLastCheckAt: new Date().toISOString(),
+    monitorLastCheckState: {
+      estado: estadoMonitor.estado || 'aguardando',
+      currentEntryTimestamp,
+      jornadaFim: jornadaConfig.fim || '',
+      alertaSemSaidaAtivo: Boolean(jornadaConfig.alertaSemSaidaAtivo),
+      alertaSemSaidaHoras: jornadaConfig.alertaSemSaidaHoras || 0,
+      minutosAgora
+    }
+  });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -244,6 +355,8 @@ chrome.runtime.onStartup.addListener(() => {
   garantirAlarme();
 });
 
+garantirAlarmeAtivo();
+
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === MONITOR_ALARM) {
     verificarAlertas();
@@ -251,8 +364,17 @@ chrome.alarms.onAlarm.addListener(alarm => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'ensure_alarm') {
+    garantirAlarme();
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message?.type === 'show_notification') {
     mostrarNotificacao({ title: message.title, message: message.message });
+    chrome.storage.local.set({
+      monitorLastAlertAt: new Date().toISOString(),
+      monitorLastAlertTitle: message.title || 'Aviso'
+    });
     sendResponse({ ok: true });
     return false;
   }
