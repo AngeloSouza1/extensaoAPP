@@ -32,13 +32,31 @@ function formatarCoordenadas(latitude, longitude) {
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
 
+function extrairCidadeEstado(localizacao) {
+  if (!localizacao) {
+    return { cidade: '', estado: '' };
+  }
+  let cidade = typeof localizacao.cidade === 'string' ? localizacao.cidade.trim() : '';
+  let estado = typeof localizacao.estado === 'string' ? localizacao.estado.trim() : '';
+  if (!estado && cidade.includes(' - ')) {
+    const partes = cidade.split(' - ').map(parte => parte.trim()).filter(Boolean);
+    if (partes.length >= 2) {
+      estado = partes.pop();
+      cidade = partes.join(' - ').trim();
+    }
+  }
+  return { cidade, estado };
+}
+
 function formatarLocalizacao(localizacao) {
   if (!localizacao) {
     return '-';
   }
   const partes = [];
-  if (localizacao.cidade) {
-    partes.push(localizacao.cidade);
+  const { cidade, estado } = extrairCidadeEstado(localizacao);
+  const cidadeEstado = [cidade, estado].filter(Boolean).join(' - ');
+  if (cidadeEstado) {
+    partes.push(cidadeEstado);
   }
   const coords = formatarCoordenadas(localizacao.latitude, localizacao.longitude);
   if (coords) {

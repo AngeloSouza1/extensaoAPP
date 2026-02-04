@@ -210,6 +210,7 @@ let loginPasswordSalt = null;
 let loginPasswordIterations = PBKDF2_ITERATIONS;
 let loginPasswordDefault = false;
 let loginPasswordForceChange = false;
+let pendingLoginErrorMessage = '';
 let monitorConfigAtual = {
   ativo: false,
   url: '',
@@ -608,13 +609,31 @@ function formatarCoordenadas(latitude, longitude) {
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
 
+function extrairCidadeEstado(localizacao) {
+  if (!localizacao) {
+    return { cidade: '', estado: '' };
+  }
+  let cidade = typeof localizacao.cidade === 'string' ? localizacao.cidade.trim() : '';
+  let estado = typeof localizacao.estado === 'string' ? localizacao.estado.trim() : '';
+  if (!estado && cidade.includes(' - ')) {
+    const partes = cidade.split(' - ').map(parte => parte.trim()).filter(Boolean);
+    if (partes.length >= 2) {
+      estado = partes.pop();
+      cidade = partes.join(' - ').trim();
+    }
+  }
+  return { cidade, estado };
+}
+
 function formatarTextoLocalizacao(localizacao) {
   if (!localizacao) {
     return '';
   }
   const partes = [];
-  if (localizacao.cidade) {
-    partes.push(localizacao.cidade);
+  const { cidade, estado } = extrairCidadeEstado(localizacao);
+  const cidadeEstado = [cidade, estado].filter(Boolean).join(' - ');
+  if (cidadeEstado) {
+    partes.push(cidadeEstado);
   }
   const coords = formatarCoordenadas(localizacao.latitude, localizacao.longitude);
   if (coords) {
@@ -623,7 +642,7 @@ function formatarTextoLocalizacao(localizacao) {
   return partes.join(' | ');
 }
 
-async function buscarCidadePorCoordenadas(latitude, longitude) {
+async function buscarLocalizacaoPorCoordenadas(latitude, longitude) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
@@ -633,18 +652,58 @@ async function buscarCidadePorCoordenadas(latitude, longitude) {
       signal: controller.signal
     });
     if (!response.ok) {
-      return '';
+      return { cidade: '', estado: '' };
     }
     const data = await response.json();
     const address = data.address || {};
     const cidade = address.city || address.town || address.village || address.municipality || address.county || '';
     const estado = address.state || '';
-    if (cidade && estado) {
-      return `${cidade} - ${estado}`;
-    }
-    return cidade || estado || '';
+    return { cidade, estado };
   } catch (error) {
-    return '';
+    return { cidade: '', estado: '' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function buscarLocalizacaoPorIp() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const url = 'https://ipwho.is/?fields=status,success,city,region,latitude,longitude';
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    if (!data) {
+      return null;
+    }
+    const cidade = typeof data.city === 'string' ? data.city.trim() : '';
+    let estado = typeof data.region === 'string' ? data.region.trim() : '';
+    const latitude = Number(data.latitude);
+    const longitude = Number(data.longitude);
+    const statusOk = data.success === true || data.status === 'success' || data.status === true;
+    if (!statusOk && !cidade && !estado) {
+      return null;
+    }
+    if (estado.toLowerCase().startsWith('state of ')) {
+      estado = estado.slice('state of '.length).trim();
+    }
+    if (!cidade && !estado) {
+      return null;
+    }
+    return {
+      cidade,
+      estado,
+      latitude: Number.isFinite(latitude) ? latitude : null,
+      longitude: Number.isFinite(longitude) ? longitude : null
+    };
+  } catch (error) {
+    return null;
   } finally {
     clearTimeout(timeoutId);
   }
@@ -655,37 +714,197 @@ function obterLocalizacaoAtual() {
     return Promise.resolve(null);
   }
   return new Promise(resolve => {
+    let best = null;
+    let resolved = false;
+    let watchId = null;
+
+    const finish = (payload) => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      resolve(payload);
+    };
+
+    const normalize = (position) => {
+      const latitude = Number(position.coords.latitude);
+      const longitude = Number(position.coords.longitude);
+      const accuracy = Number(position.coords.accuracy);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return null;
+      }
+      return {
+        latitude,
+        longitude,
+        accuracy: Number.isFinite(accuracy) ? accuracy : null
+      };
+    };
+
+    const handlePosition = (position, isWatch) => {
+      const data = normalize(position);
+      if (!data) {
+        return;
+      }
+      if (!best || (data.accuracy != null && (best.accuracy == null || data.accuracy < best.accuracy))) {
+        best = data;
+      }
+      if (data.accuracy != null && data.accuracy <= LOCATION_TARGET_ACCURACY_M) {
+        if (isWatch && watchId != null) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+        finish(data);
+      }
+    };
+
+    const handleError = () => {
+      if (best) {
+        finish(best);
+        return;
+      }
+      finish(null);
+    };
+
     navigator.geolocation.getCurrentPosition(
       position => {
-        const latitude = Number(position.coords.latitude);
-        const longitude = Number(position.coords.longitude);
-        const accuracy = Number(position.coords.accuracy);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-          resolve(null);
+        handlePosition(position, false);
+        if (best && best.accuracy != null && best.accuracy <= LOCATION_TARGET_ACCURACY_M) {
           return;
         }
-        buscarCidadePorCoordenadas(latitude, longitude)
-          .then(cidade => resolve({
-            cidade,
-            latitude,
-            longitude,
-            accuracy: Number.isFinite(accuracy) ? accuracy : null
-          }))
-          .catch(() => resolve({
-            cidade: '',
-            latitude,
-            longitude,
-            accuracy: Number.isFinite(accuracy) ? accuracy : null
-          }));
+        watchId = navigator.geolocation.watchPosition(
+          pos => handlePosition(pos, true),
+          handleError,
+          {
+            enableHighAccuracy: true,
+            timeout: LOCATION_WATCH_TIMEOUT_MS,
+            maximumAge: 0
+          }
+        );
+        setTimeout(() => {
+          if (watchId != null) {
+            navigator.geolocation.clearWatch(watchId);
+          }
+          if (!resolved) {
+            finish(best);
+          }
+        }, LOCATION_WATCH_TIMEOUT_MS);
       },
-      () => resolve(null),
+      handleError,
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: LOCATION_WATCH_TIMEOUT_MS,
         maximumAge: 0
       }
     );
+  }).then(async (coords) => {
+    if (!coords) {
+      return null;
+    }
+    const { latitude, longitude, accuracy } = coords;
+    if (Number.isFinite(accuracy) && accuracy > LOCATION_MAX_ACCURACY_M) {
+      return null;
+    }
+    try {
+      const { cidade, estado } = await buscarLocalizacaoPorCoordenadas(latitude, longitude);
+      return { cidade, estado, latitude, longitude, accuracy };
+    } catch (error) {
+      return { cidade: '', estado: '', latitude, longitude, accuracy };
+    }
   });
+}
+
+function isCoordsFallbackBrasil(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return false;
+  }
+  return Math.abs(latitude + 14.235) < 0.05 && Math.abs(longitude + 51.925) < 0.05;
+}
+
+function isLocalizacaoPrecisa(localizacao) {
+  if (!localizacao) {
+    return false;
+  }
+  const { latitude, longitude, accuracy } = localizacao;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return false;
+  }
+  if (Number.isFinite(accuracy) && accuracy > LOCATION_MAX_ACCURACY_M) {
+    return false;
+  }
+  if (isCoordsFallbackBrasil(latitude, longitude)) {
+    return false;
+  }
+  return true;
+}
+
+function isLocalizacaoExibivel(localizacao) {
+  if (!localizacao) {
+    return false;
+  }
+  const { cidade, estado } = extrairCidadeEstado(localizacao);
+  if (cidade || estado) {
+    return true;
+  }
+  const { latitude, longitude } = localizacao;
+  return Number.isFinite(latitude) && Number.isFinite(longitude);
+}
+
+function isLocalizacaoInvalida(localizacao) {
+  if (!localizacao) {
+    return true;
+  }
+  const { cidade, estado } = extrairCidadeEstado(localizacao);
+  const { latitude, longitude, accuracy } = localizacao;
+  const temCidadeEstado = Boolean(cidade || estado);
+  const temCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+  if (!temCidadeEstado && !temCoords) {
+    return true;
+  }
+  if (temCoords && isCoordsFallbackBrasil(latitude, longitude)) {
+    return true;
+  }
+  if (Number.isFinite(accuracy) && accuracy > LOCATION_MAX_ACCURACY_M) {
+    return true;
+  }
+  return false;
+}
+
+function corrigirLocalizacaoRegistro(registro, localizacaoPadrao) {
+  if (!registro || !localizacaoPadrao) {
+    return { registro, alterado: false };
+  }
+  if (!isLocalizacaoInvalida(registro.localizacao)) {
+    return { registro, alterado: false };
+  }
+  const { cidade, estado, latitude, longitude, accuracy } = localizacaoPadrao;
+  const novaLocalizacao = {
+    cidade: cidade || '',
+    estado: estado || '',
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null
+  };
+  return {
+    registro: { ...registro, localizacao: novaLocalizacao },
+    alterado: true
+  };
+}
+
+async function obterLocalizacaoComFallback({ allowGps = true } = {}) {
+  if (allowGps) {
+    const gps = await obterLocalizacaoAtual();
+    if (gps && isLocalizacaoPrecisa(gps)) {
+      return { ...gps, origem: 'gps' };
+    }
+  }
+  const ip = await buscarLocalizacaoPorIp();
+  if (ip) {
+    return {
+      ...ip,
+      accuracy: null,
+      origem: 'ip'
+    };
+  }
+  return null;
 }
 
 function atualizarLocalizacaoTopo() {
@@ -705,12 +924,124 @@ function atualizarLocalizacaoTopo() {
   }
   userLocation.textContent = `📍 ${texto}`;
   userLocation.classList.remove('hidden');
+  if (ultimaLocalizacao) {
+    const accuracy = Number.isFinite(ultimaLocalizacao.accuracy)
+      ? `${Math.round(ultimaLocalizacao.accuracy)}m`
+      : '';
+    const atualizadoEm = ultimaLocalizacao.atualizadoEm
+      ? formatarDataHoraCurta(ultimaLocalizacao.atualizadoEm)
+      : '';
+    const titleParts = [];
+    if (accuracy) titleParts.push(`Precisão: ${accuracy}`);
+    if (atualizadoEm) titleParts.push(`Atualizado: ${atualizadoEm}`);
+    if (titleParts.length) {
+      userLocation.title = titleParts.join(' · ');
+    }
+  }
 }
 
 async function carregarLocalizacao() {
   const { dados } = await obterDadosUsuarioStorage();
   ultimaLocalizacao = dados.ultimaLocalizacao || null;
+  if (ultimaLocalizacao && !isLocalizacaoExibivel(ultimaLocalizacao)) {
+    ultimaLocalizacao = null;
+    dados.ultimaLocalizacao = null;
+    await salvarDadosUsuario(dados);
+  }
   atualizarLocalizacaoTopo();
+  if (!usuarioLogado) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastLocationRefreshAt < LOCATION_STARTUP_REFRESH_MS) {
+    return;
+  }
+  lastLocationRefreshAt = now;
+  if (ultimaLocalizacao?.atualizadoEm) {
+    const last = new Date(ultimaLocalizacao.atualizadoEm).getTime();
+    if (Number.isFinite(last)) {
+      const ageMs = now - last;
+      if (ageMs > 15 * 60 * 1000) {
+        void atualizarLocalizacaoManual({ silent: true });
+        return;
+      }
+    }
+  }
+  void atualizarLocalizacaoManual({ silent: true });
+}
+
+const LOCATION_REFRESH_MS = 5 * 60 * 1000;
+const LOCATION_TARGET_ACCURACY_M = 200;
+const LOCATION_MAX_ACCURACY_M = 20000;
+const LOCATION_WATCH_TIMEOUT_MS = 15000;
+const LOCATION_STARTUP_REFRESH_MS = 2 * 60 * 1000;
+let locationRefreshTimer = null;
+let lastLocationRefreshAt = 0;
+
+async function obterEstadoPermissaoLocalizacao() {
+  if (!navigator?.permissions?.query) {
+    return 'unknown';
+  }
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    return status?.state || 'unknown';
+  } catch (error) {
+    return 'unknown';
+  }
+}
+
+async function atualizarLocalizacaoManual({ silent = false } = {}) {
+  if (!usuarioLogado) {
+    return;
+  }
+  const permissao = await obterEstadoPermissaoLocalizacao();
+  if (permissao === 'denied') {
+    if (!silent) {
+      await showMessageSemCancelar('Localização bloqueada no navegador. Usando localização aproximada por IP.', 'Localização');
+    }
+  }
+  const localizacao = await obterLocalizacaoComFallback({ allowGps: permissao !== 'denied' });
+  if (!localizacao) {
+    if (!silent) {
+      await showMessageSemCancelar('Não foi possível obter uma localização precisa. Verifique a permissão do navegador e se a localização do sistema está ativa.', 'Localização');
+    }
+    return;
+  }
+  const { cidade, estado } = extrairCidadeEstado(localizacao);
+  if (!cidade && !estado) {
+    if (!silent) {
+      await showMessageSemCancelar('Não foi possível identificar cidade/estado. Verifique a localização do sistema e tente novamente.', 'Localização');
+    }
+    return;
+  }
+  const now = new Date();
+  ultimaLocalizacao = {
+    ...localizacao,
+    cidade,
+    estado,
+    atualizadoEm: now.toISOString()
+  };
+  const { dados } = await obterDadosUsuarioStorage();
+  dados.ultimaLocalizacao = ultimaLocalizacao;
+  await salvarDadosUsuario(dados);
+  atualizarLocalizacaoTopo();
+  if (!silent) {
+    const titulo = localizacao.origem === 'ip' ? 'Localização aproximada (IP)' : 'Localização';
+    const mensagem = localizacao.origem === 'ip' ? 'Localização aproximada por IP. Para precisão, ative o Wi-Fi/GPS.' : 'Localização atualizada.';
+    await showMessageSemCancelar(mensagem, titulo);
+  }
+}
+
+function iniciarAutoRefreshLocalizacao() {
+  if (locationRefreshTimer) {
+    clearInterval(locationRefreshTimer);
+    locationRefreshTimer = null;
+  }
+  locationRefreshTimer = setInterval(() => {
+    if (usuarioLogado) {
+      void atualizarLocalizacaoManual({ silent: true });
+    }
+  }, LOCATION_REFRESH_MS);
 }
 
 async function registrarLocalizacaoLogin() {
@@ -719,7 +1050,7 @@ async function registrarLocalizacaoLogin() {
   }
   localizacaoLoginEmAndamento = true;
   try {
-    const localizacao = await obterLocalizacaoAtual();
+    const localizacao = await obterLocalizacaoComFallback();
     if (!localizacao) {
       return;
     }
@@ -2835,7 +3166,10 @@ function showMessageSemCancelar(texto, titulo) {
   });
 }
 
-function setLoginError(message) {
+function setLoginError(message, { persist = false } = {}) {
+  if (persist) {
+    pendingLoginErrorMessage = message || '';
+  }
   if (!loginError) {
     return;
   }
@@ -2848,8 +3182,15 @@ function setLoginError(message) {
   loginError.classList.remove('hidden');
 }
 
-function clearLoginError() {
-  setLoginError('');
+function clearLoginError({ clearPersisted = true } = {}) {
+  if (clearPersisted) {
+    pendingLoginErrorMessage = '';
+  }
+  if (!loginError) {
+    return;
+  }
+  loginError.textContent = '';
+  loginError.classList.add('hidden');
 }
 
 
@@ -2889,7 +3230,7 @@ function atualizarLoginModalCampos() {
   if (loginTitle) {
     loginTitle.textContent = 'Entrar';
   }
-  clearLoginError();
+  clearLoginError({ clearPersisted: false });
   if (loginModeHint) {
     if (loginPasswordDefault && temSenha) {
       loginModeHint.textContent = `Primeiro acesso: usuario ${LOGIN_DEFAULT_USER} e senha ${LOGIN_DEFAULT_PASSWORD}.`;
@@ -2898,6 +3239,9 @@ function atualizarLoginModalCampos() {
       loginModeHint.classList.add('hidden');
       loginModeHint.textContent = '';
     }
+  }
+  if (pendingLoginErrorMessage) {
+    setLoginError(pendingLoginErrorMessage, { persist: true });
   }
   if (loginSubmit) {
     loginSubmit.classList.toggle('hidden', !temSenha);
@@ -3286,7 +3630,7 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
       if (loginModal && !loginModal.classList.contains('open')) {
         abrirLoginModal();
       }
-      setLoginError(mensagem);
+      setLoginError(mensagem, { persist: true });
       const deveGuardar =
         !document ||
         document.hidden ||
@@ -3408,7 +3752,7 @@ async function carregarUsuario() {
     if (loginModal && !loginModal.classList.contains('open')) {
       abrirLoginModal();
     }
-    setLoginError(aviso.message);
+    setLoginError(aviso.message, { persist: true });
   }
   const googleAuthPending = Boolean(data.googleAuthPending);
   let profile = data.userProfile || null;
@@ -3519,7 +3863,21 @@ async function carregarUsuario() {
       if (loginModal && !loginModal.classList.contains('open')) {
         abrirLoginModal();
       }
-      setLoginError(mensagem);
+      setLoginError(mensagem, { persist: true });
+      const deveGuardar =
+        !document ||
+        document.hidden ||
+        (document.hasFocus ? !document.hasFocus() : false);
+      if (deveGuardar && chrome?.storage?.local?.set) {
+        chrome.storage.local.set({
+          [LOGIN_MESSAGE_STORAGE_KEY]: {
+            title: 'Login',
+            message: mensagem,
+            at: new Date().toISOString()
+          }
+        });
+      }
+      notificarSeSegundoPlano('Login', mensagem);
       usuarioAutoLogin = false;
       usuarioLogado = false;
       await chrome.storage.local.set({
@@ -3587,6 +3945,9 @@ function atualizarUserDisplay() {
     }
   }
   atualizarLocalizacaoTopo();
+  if (usuarioLogado && !isLocalizacaoExibivel(ultimaLocalizacao)) {
+    void atualizarLocalizacaoManual({ silent: true });
+  }
 }
 
 async function recarregarDadosUsuarioAtual() {
@@ -3622,6 +3983,7 @@ function fecharLoginModal() {
   if (!loginModal) {
     return;
   }
+  clearLoginError({ clearPersisted: true });
   loginModal.classList.remove('open');
   loginModal.setAttribute('aria-hidden', 'true');
 }
@@ -3725,7 +4087,24 @@ async function efetuarLogin() {
       }
       mensagem += ' Faça logout lá para continuar.';
     }
-    setLoginError(mensagem);
+    if (loginModal && !loginModal.classList.contains('open')) {
+      abrirLoginModal();
+    }
+    setLoginError(mensagem, { persist: true });
+    const deveGuardar =
+      !document ||
+      document.hidden ||
+      (document.hasFocus ? !document.hasFocus() : false);
+    if (deveGuardar && chrome?.storage?.local?.set) {
+      chrome.storage.local.set({
+        [LOGIN_MESSAGE_STORAGE_KEY]: {
+          title: 'Login',
+          message: mensagem,
+          at: new Date().toISOString()
+        }
+      });
+    }
+    notificarSeSegundoPlano('Login', mensagem);
     void enviarEventoMonitoramento('login_failure', {
       reason: sessaoOk.reason || 'session_conflict',
       username: nome
@@ -3991,6 +4370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await carregarMonitorConfig();
   setupEventListeners();
   await carregarUsuario();
+  iniciarAutoRefreshLocalizacao();
   void tentarEnviarFilaMonitoramento();
 });
 
@@ -4807,6 +5187,37 @@ async function atualizarHistorico() {
   
   // Buscar dados atuais do storage - garantir que buscamos dados atualizados
   let data = await obterDadosUsuarioStorage();
+  if (isLocalizacaoExibivel(ultimaLocalizacao)) {
+    let alterouRegistros = false;
+    const registrosPorDia = data.dados.registros || {};
+    const registrosAtualizados = {};
+    Object.entries(registrosPorDia).forEach(([dataKey, registrosDia]) => {
+      if (!Array.isArray(registrosDia)) {
+        registrosAtualizados[dataKey] = registrosDia;
+        return;
+      }
+      let alterouDia = false;
+      const novos = registrosDia.map(reg => {
+        if (reg?.tipo !== 'login') {
+          return reg;
+        }
+        const { registro, alterado } = corrigirLocalizacaoRegistro(reg, ultimaLocalizacao);
+        if (alterado) {
+          alterouDia = true;
+        }
+        return registro;
+      });
+      if (alterouDia) {
+        alterouRegistros = true;
+      }
+      registrosAtualizados[dataKey] = novos;
+    });
+    if (alterouRegistros) {
+      data.dados.registros = registrosAtualizados;
+      await salvarDadosUsuario(data.dados);
+      data = await obterDadosUsuarioStorage();
+    }
+  }
   temDadosHistorico = calcularTemHistorico(data.dados);
   let registros = data.dados.registros?.[hoje] || [];
   let periodos = data.dados.periodos?.[hoje] || [];
