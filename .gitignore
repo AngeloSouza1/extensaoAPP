@@ -24,6 +24,7 @@ node_modules/
 server/node_modules/
 server/data/
 server/*.db
+server/.env
 
 # Extension key (private)
 extension.pem

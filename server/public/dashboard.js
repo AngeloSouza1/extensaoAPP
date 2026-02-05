@@ -16,6 +16,7 @@ const els = {
   clearFiltersBtn: document.getElementById('clearFiltersBtn'),
   exportBtn: document.getElementById('exportBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
+  clearSessionsBtn: document.getElementById('clearSessionsBtn'),
   loadingOverlay: document.getElementById('loadingOverlay'),
   loadingText: document.getElementById('loadingText'),
   loginOverlay: document.getElementById('loginOverlay'),
@@ -259,6 +260,22 @@ function apiFetch(path, params) {
   const query = buildQuery(params || {});
   const url = query ? `${path}?${query}` : path;
   return fetch(url, { headers: buildAuthHeaders() }).then(response => {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  });
+}
+
+function apiPost(path, body) {
+  return fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildAuthHeaders()
+    },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(response => {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -1099,8 +1116,7 @@ async function handleLoginSubmit() {
       return;
     }
     window.localStorage.setItem('monitor_dash_token', dashboardToken);
-    setLoginVisible(false, '');
-    await startDashboard();
+    window.location.reload();
   } catch (error) {
     setLoginVisible(true, 'Servidor indisponível.');
   }
@@ -1266,6 +1282,26 @@ function bindEvents() {
   if (els.logoutBtn) {
     els.logoutBtn.addEventListener('click', () => {
       handleLogout().catch(() => {});
+    });
+  }
+  if (els.clearSessionsBtn) {
+    els.clearSessionsBtn.addEventListener('click', async () => {
+      if (!confirm('Encerrar todas as sessões ativas?')) {
+        return;
+      }
+      setLoadingVisible(true, 'Encerrando sessões...');
+      try {
+        await apiPost('/api/sessions/clear');
+        await Promise.all([
+          fetchOverview(),
+          fetchActiveSessions(),
+          fetchEvents(true)
+        ]);
+      } catch (error) {
+        // ignore
+      } finally {
+        setLoadingVisible(false);
+      }
     });
   }
   if (els.loadMoreBtn) {

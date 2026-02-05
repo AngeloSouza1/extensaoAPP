@@ -109,14 +109,24 @@ async function carregarMonitorConfig() {
   return {
     ativo: Boolean(config.ativo),
     url: (config.url || '').trim(),
-    apiKey: (config.apiKey || '').trim(),
     deviceName: (config.deviceName || '').trim(),
     deviceId: data.monitorDeviceId || ''
   };
 }
 
-function obterUrlBase(url) {
+function normalizarMonitorUrl(url) {
   const base = (url || '').trim();
+  if (!base) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(base)) {
+    return base;
+  }
+  return `http://${base}`;
+}
+
+function obterUrlBase(url) {
+  const base = normalizarMonitorUrl(url);
   return base.replace(/\/+$/, '');
 }
 
@@ -126,9 +136,6 @@ async function enviarEvento(config, evento) {
     return false;
   }
   const headers = { 'Content-Type': 'application/json' };
-  if (config.apiKey) {
-    headers['X-API-Key'] = config.apiKey;
-  }
   try {
     const response = await fetch(`${baseUrl}/api/events`, {
       method: 'POST',

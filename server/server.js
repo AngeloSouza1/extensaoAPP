@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
@@ -16,6 +17,7 @@ const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 const ACTIVE_SESSION_TTL_MIN = Number(process.env.MONITOR_SESSION_TTL_MIN) || 60;
 const SINGLE_SESSION_ONLY = String(process.env.MONITOR_SINGLE_SESSION || '1') !== '0';
+const CLEAR_SESSIONS_ON_START = String(process.env.MONITOR_CLEAR_SESSIONS_ON_START || '0') === '1';
 
 const app = express();
 app.set('trust proxy', true);
@@ -71,6 +73,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions (ended_at);
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_key);
 `);
+
+const clearActiveSessionsStmt = db.prepare(`
+  UPDATE sessions
+  SET ended_at = ?
+  WHERE ended_at IS NULL;
+`);
+
+if (CLEAR_SESSIONS_ON_START) {
+  clearActiveSessionsStmt.run(new Date().toISOString());
+}
 
 const insertEventStmt = db.prepare(`
   INSERT INTO events (
@@ -933,6 +945,12 @@ app.get('/api/sessions', requireDashboardAuth, (req, res) => {
       endedAt: row.ended_at
     }))
   });
+});
+
+app.post('/api/sessions/clear', requireDashboardAuth, (req, res) => {
+  const endedAt = new Date().toISOString();
+  const result = clearActiveSessionsStmt.run(endedAt);
+  res.json({ ok: true, cleared: result.changes || 0, endedAt });
 });
 
 app.get('/api/overview', requireDashboardAuth, (req, res) => {

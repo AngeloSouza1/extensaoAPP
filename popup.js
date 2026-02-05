@@ -54,7 +54,6 @@ const monitorModal = document.getElementById('monitorModal');
 const monitorClose = document.getElementById('monitorClose');
 const monitorEnabled = document.getElementById('monitorEnabled');
 const monitorUrlInput = document.getElementById('monitorUrl');
-const monitorApiKeyInput = document.getElementById('monitorApiKey');
 const monitorDeviceNameInput = document.getElementById('monitorDeviceName');
 const monitorDeviceIdInput = document.getElementById('monitorDeviceId');
 const monitorTestBtn = document.getElementById('monitorTestBtn');
@@ -214,7 +213,6 @@ let pendingLoginErrorMessage = '';
 let monitorConfigAtual = {
   ativo: false,
   url: '',
-  apiKey: '',
   deviceId: '',
   deviceName: ''
 };
@@ -1607,6 +1605,17 @@ function atualizarCargaDiaria(config) {
   dailyTarget.textContent = formatarHorasMinutos(obterCargaDiariaSegundos(config));
 }
 
+function atualizarBotaoSimularJornada(config) {
+  if (!scheduleSimulateBtn) {
+    return;
+  }
+  const jornadaAtiva = Boolean(useScheduleInput?.checked);
+  const inicio = config?.inicio ?? workStartInput?.value ?? '';
+  const fim = config?.fim ?? workEndInput?.value ?? '';
+  const alertaSemSaida = Boolean(missingExitAlertInput?.checked);
+  scheduleSimulateBtn.disabled = !((inicio && fim) || jornadaAtiva || alertaSemSaida);
+}
+
 function calcularTemHistorico(dados) {
   const registros = normalizarObjeto(dados?.registros);
   const periodos = normalizarObjeto(dados?.periodos);
@@ -1622,7 +1631,9 @@ async function simularJornada() {
   const almocoFim = lunchEndInput?.value || '';
 
   if (!inicio || !fim) {
-    await showMessage('Informe os horarios de entrada e saida para simular.', 'Jornada padrão');
+    await abrirMessageModal('Jornada padrão', 'Preencha os horários de entrada e saída para simular a jornada.', false, {
+      hideActions: true
+    });
     return;
   }
 
@@ -1678,9 +1689,11 @@ function aplicarEstadoJornada(ativo, config) {
     if (statusHint) {
       statusHint.textContent = '';
     }
+    atualizarBotaoSimularJornada({ inicio: '', fim: '' });
     return;
   }
   atualizarCargaDiaria(jornadaConfigAtual);
+  atualizarBotaoSimularJornada(jornadaConfigAtual);
 }
 
 function aplicarEstadoAlertaSemSaida(ativo, horas) {
@@ -1719,6 +1732,7 @@ async function carregarJornadaConfig() {
   const ativo = config.ativo !== undefined ? Boolean(config.ativo) : possuiHorarios;
   aplicarEstadoJornada(ativo, configAtual);
   aplicarEstadoAlertaSemSaida(configAtual.alertaSemSaidaAtivo, configAtual.alertaSemSaidaHoras);
+  atualizarBotaoSimularJornada(configAtual);
   await salvarMonitorEstadoAtual();
 }
 
@@ -1740,6 +1754,7 @@ async function salvarJornadaConfig() {
   await salvarDadosUsuario(dados);
   aplicarEstadoJornada(config.ativo, config);
   aplicarEstadoAlertaSemSaida(config.alertaSemSaidaAtivo, config.alertaSemSaidaHoras);
+  atualizarBotaoSimularJornada(config);
   await salvarMonitorEstadoAtual();
   chrome.runtime?.sendMessage?.({ type: 'monitor_check_now' });
 }
@@ -1770,9 +1785,6 @@ function aplicarMonitorConfig(config) {
   if (monitorUrlInput) {
     monitorUrlInput.value = cfg.url || '';
   }
-  if (monitorApiKeyInput) {
-    monitorApiKeyInput.value = cfg.apiKey || '';
-  }
   if (monitorDeviceNameInput) {
     monitorDeviceNameInput.value = cfg.deviceName || '';
   }
@@ -1789,13 +1801,23 @@ async function carregarMonitorConfig() {
     await chrome.storage.local.set({ monitorDeviceId: deviceId });
   }
   const config = storage.monitorConfig || {};
+  const urlTrimmed = (config.url || '').trim();
+  const ativoResolvido = Boolean(config.ativo) || Boolean(urlTrimmed);
   monitorConfigAtual = {
-    ativo: Boolean(config.ativo),
-    url: (config.url || '').trim(),
-    apiKey: (config.apiKey || '').trim(),
+    ativo: ativoResolvido,
+    url: urlTrimmed,
     deviceId,
     deviceName: (config.deviceName || '').trim()
   };
+  if (urlTrimmed && !config.ativo) {
+    await chrome.storage.local.set({
+      monitorConfig: {
+        ...config,
+        ativo: true,
+        url: urlTrimmed
+      }
+    });
+  }
   if (Array.isArray(storage.monitorQueue)) {
     monitorQueue = storage.monitorQueue;
   }
@@ -1803,8 +1825,19 @@ async function carregarMonitorConfig() {
   aplicarMonitorConfig(monitorConfigAtual);
 }
 
-function obterMonitorUrlBase(url) {
+function normalizarMonitorUrl(url) {
   const valor = (url || '').trim();
+  if (!valor) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(valor)) {
+    return valor;
+  }
+  return `http://${valor}`;
+}
+
+function obterMonitorUrlBase(url) {
+  const valor = normalizarMonitorUrl(url);
   if (!valor) {
     return '';
   }
@@ -1827,9 +1860,6 @@ async function validarSessaoUnicaServidor(user) {
     const headers = {
       'Content-Type': 'application/json'
     };
-    if (monitorConfigAtual.apiKey) {
-      headers['X-API-Key'] = monitorConfigAtual.apiKey;
-    }
     const response = await fetch(`${baseUrl}/api/sessions/claim`, {
       method: 'POST',
       headers,
@@ -1860,10 +1890,10 @@ async function validarSessaoUnicaServidor(user) {
 }
 
 function lerMonitorConfigModal() {
+  const url = normalizarMonitorUrl(monitorUrlInput?.value);
   return {
-    ativo: monitorEnabled?.checked || false,
-    url: monitorUrlInput?.value?.trim() || '',
-    apiKey: monitorApiKeyInput?.value?.trim() || '',
+    ativo: Boolean(monitorEnabled?.checked) || Boolean(url),
+    url,
     deviceName: monitorDeviceNameInput?.value?.trim() || ''
   };
 }
@@ -1891,11 +1921,7 @@ async function testarMonitorConexao() {
     return;
   }
   try {
-    const headers = {};
-    if (config.apiKey) {
-      headers['X-API-Key'] = config.apiKey;
-    }
-    const response = await fetch(`${baseUrl}/api/health`, { headers });
+    const response = await fetch(`${baseUrl}/api/health`);
     if (!response.ok) {
       throw new Error('Falha ao conectar.');
     }
@@ -2124,9 +2150,6 @@ async function enviarEventoMonitoramentoDireto(config, evento) {
   const headers = {
     'Content-Type': 'application/json'
   };
-  if (config.apiKey) {
-    headers['X-API-Key'] = config.apiKey;
-  }
   try {
     const response = await fetch(`${baseUrl}/api/events`, {
       method: 'POST',
@@ -2770,6 +2793,7 @@ function abrirPasswordModal() {
   if (passwordCurrent) passwordCurrent.value = '';
   if (passwordNew) passwordNew.value = '';
   if (passwordConfirm) passwordConfirm.value = '';
+  atualizarBotaoSalvarSenhaEdicao();
   passwordModal.classList.add('open');
   passwordModal.setAttribute('aria-hidden', 'false');
 }
@@ -2780,6 +2804,19 @@ function fecharPasswordModal() {
   }
   passwordModal.classList.remove('open');
   passwordModal.setAttribute('aria-hidden', 'true');
+}
+
+function atualizarBotaoSalvarSenhaEdicao() {
+  if (!passwordSave) {
+    return;
+  }
+  const temSenha = Boolean(senhaEdicaoHash);
+  const atual = passwordCurrent?.value || '';
+  const nova = passwordNew?.value || '';
+  const confirmar = passwordConfirm?.value || '';
+  const precisaAtual = temSenha && !passwordCurrentField?.classList.contains('hidden');
+  const preenchido = Boolean(nova && confirmar && (!precisaAtual || atual));
+  passwordSave.disabled = !preenchido;
 }
 
 async function salvarSenhaEdicao() {
@@ -3068,6 +3105,7 @@ function abrirMessageModal(titulo, texto, confirmacao, options = {}) {
   if (messageOpen) {
     return Promise.resolve(false);
   }
+  const hideCancel = Boolean(options.hideCancel);
   messageAutoClose = Boolean(options.autoClose);
   messageHideActions = Boolean(options.hideActions);
   messageHideClose = Boolean(options.hideClose);
@@ -3075,8 +3113,9 @@ function abrirMessageModal(titulo, texto, confirmacao, options = {}) {
   messageMode = confirmacao ? 'confirm' : 'alert';
   messageTitle.textContent = titulo || (confirmacao ? 'Confirmar' : 'Mensagem');
   messageText.textContent = texto || '';
-  messageCancel.classList.toggle('hidden', !confirmacao);
-  messageCancel.toggleAttribute('hidden', !confirmacao);
+  const mostrarCancelar = confirmacao && !hideCancel;
+  messageCancel.classList.toggle('hidden', !mostrarCancelar);
+  messageCancel.toggleAttribute('hidden', !mostrarCancelar);
   if (messageActions) {
     messageActions.classList.toggle('hidden', messageHideActions);
     messageActions.style.display = messageHideActions ? 'none' : '';
@@ -3089,6 +3128,7 @@ function abrirMessageModal(titulo, texto, confirmacao, options = {}) {
   } else {
     messageOk.classList.remove('hidden');
     messageOk.style.display = '';
+    messageCancel.style.display = mostrarCancelar ? '' : 'none';
   }
   if (messageClose) {
     messageClose.classList.toggle('hidden', messageHideClose);
@@ -3147,11 +3187,13 @@ function fecharMessageModal(resultado) {
 }
 
 function showMessage(texto, titulo) {
-  return abrirMessageModal(titulo || 'Mensagem', texto, false);
+  return abrirMessageModal(titulo || 'Mensagem', texto, false, {
+    hideCancel: true
+  });
 }
 
-function showConfirm(texto, titulo) {
-  return abrirMessageModal(titulo || 'Confirmar', texto, true);
+function showConfirm(texto, titulo, options = {}) {
+  return abrirMessageModal(titulo || 'Confirmar', texto, true, options);
 }
 
 function showMessageSemCancelar(texto, titulo) {
@@ -3164,6 +3206,10 @@ function showMessageSemCancelar(texto, titulo) {
     hideActions: true,
     hideClose: true
   });
+}
+
+function showConfirmSemCancelar(texto, titulo) {
+  return showConfirm(texto, titulo, { hideCancel: true });
 }
 
 function setLoginError(message, { persist = false } = {}) {
@@ -4133,11 +4179,6 @@ async function efetuarLogin() {
   void registrarLocalizacaoLogin();
   await salvarMonitorEstadoAtual();
   void enviarEventoMonitoramento('login_success', { source: 'manual' });
-  if (loginPasswordDefault) {
-    loginPasswordForceChange = true;
-    abrirLoginPasswordModal();
-    return;
-  }
   await showMessageSemCancelar('Login realizado com sucesso.', 'Login');
 }
 
@@ -4539,6 +4580,15 @@ function setupEventListeners() {
   }
   if (passwordSave) {
     passwordSave.addEventListener('click', salvarSenhaEdicao);
+  }
+  if (passwordCurrent) {
+    passwordCurrent.addEventListener('input', atualizarBotaoSalvarSenhaEdicao);
+  }
+  if (passwordNew) {
+    passwordNew.addEventListener('input', atualizarBotaoSalvarSenhaEdicao);
+  }
+  if (passwordConfirm) {
+    passwordConfirm.addEventListener('input', atualizarBotaoSalvarSenhaEdicao);
   }
   if (loginPasswordClose) {
     loginPasswordClose.addEventListener('click', fecharLoginPasswordModal);
