@@ -16,9 +16,16 @@ const els = {
   clearFiltersBtn: document.getElementById('clearFiltersBtn'),
   exportBtn: document.getElementById('exportBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
+  clearSelectedSessionsBtn: document.getElementById('clearSelectedSessionsBtn'),
   clearSessionsBtn: document.getElementById('clearSessionsBtn'),
   loadingOverlay: document.getElementById('loadingOverlay'),
   loadingText: document.getElementById('loadingText'),
+  dialogOverlay: document.getElementById('dialogOverlay'),
+  dialogEyebrow: document.getElementById('dialogEyebrow'),
+  dialogTitle: document.getElementById('dialogTitle'),
+  dialogMessage: document.getElementById('dialogMessage'),
+  dialogCancelBtn: document.getElementById('dialogCancelBtn'),
+  dialogConfirmBtn: document.getElementById('dialogConfirmBtn'),
   loginOverlay: document.getElementById('loginOverlay'),
   loginHint: document.getElementById('loginHint'),
   loginUser: document.getElementById('loginUser'),
@@ -59,6 +66,7 @@ const state = {
 };
 
 const newEventIds = new Set();
+const selectedSessionKeys = new Set();
 let eventSource = null;
 let apiKey = '';
 let dashboardToken = '';
@@ -70,6 +78,8 @@ let authConfig = {
 let refreshTimer = null;
 let dashboardStarted = false;
 let autoRefreshTimer = null;
+let dialogResolve = null;
+let refreshInProgress = false;
 const AUTO_REFRESH_MS = 30000;
 
 const TYPE_LABELS = {
@@ -103,6 +113,7 @@ const LOGIN_FAILURE_REASONS = {
   user_not_found: 'Usuário não encontrado',
   user_not_registered: 'Usuário não cadastrado',
   invalid_password: 'Senha incorreta',
+  session_revoked: 'Sessão encerrada pelo administrador',
   crypto_unlock_failed: 'Falha ao desbloquear dados',
   session_conflict: 'Usuário já está logado em outro dispositivo',
   server_unreachable: 'Servidor indisponível para validar sessão',
@@ -180,6 +191,48 @@ function setLoadingVisible(show, message) {
   if (els.loadingText && message) {
     els.loadingText.textContent = message;
   }
+}
+
+function setDialogVisible(show) {
+  if (!els.dialogOverlay) {
+    return;
+  }
+  els.dialogOverlay.classList.toggle('open', show);
+  els.dialogOverlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function closeDialog(result) {
+  setDialogVisible(false);
+  const resolve = dialogResolve;
+  dialogResolve = null;
+  if (resolve) {
+    resolve(result);
+  }
+}
+
+function showDialog({
+  eyebrow = 'Ação do sistema',
+  title = 'Confirmação',
+  message = '',
+  confirmText = 'Confirmar',
+  cancelText = 'Cancelar',
+  showCancel = true
+} = {}) {
+  if (!els.dialogOverlay || !els.dialogTitle || !els.dialogMessage || !els.dialogConfirmBtn || !els.dialogCancelBtn) {
+    return Promise.resolve(false);
+  }
+  if (els.dialogEyebrow) {
+    els.dialogEyebrow.textContent = eyebrow;
+  }
+  els.dialogTitle.textContent = title;
+  els.dialogMessage.textContent = message;
+  els.dialogConfirmBtn.textContent = confirmText;
+  els.dialogCancelBtn.textContent = cancelText;
+  els.dialogCancelBtn.style.display = showCancel ? '' : 'none';
+  setDialogVisible(true);
+  return new Promise(resolve => {
+    dialogResolve = resolve;
+  });
 }
 
 function applyTheme(mode) {
@@ -927,38 +980,84 @@ function updateTableScrollLock() {
   tableWrap.classList.toggle('locked', deveTravar);
 }
 
+function buildSessionSelectionKey(session) {
+  const userKey = String(session?.user?.key || '').trim();
+  const deviceId = String(session?.device?.id || '').trim();
+  if (!userKey || !deviceId) {
+    return '';
+  }
+  return `${encodeURIComponent(userKey)}::${encodeURIComponent(deviceId)}`;
+}
+
+function updateSelectedSessionsButton() {
+  if (!els.clearSelectedSessionsBtn) {
+    return;
+  }
+  const count = selectedSessionKeys.size;
+  els.clearSelectedSessionsBtn.disabled = count === 0;
+  els.clearSelectedSessionsBtn.textContent =
+    count > 0 ? `Deslogar selecionados (${count})` : 'Deslogar selecionados';
+}
+
+function updateClearSessionsButton(activeCount) {
+  if (!els.clearSessionsBtn) {
+    return;
+  }
+  const count = Number(activeCount) || 0;
+  els.clearSessionsBtn.disabled = count === 0;
+  els.clearSessionsBtn.textContent =
+    count > 0 ? `Encerrar sessões (${count})` : 'Encerrar sessões';
+}
+
 function renderActiveUsers(items) {
   if (!els.activeUsers) {
     return;
   }
+  const validKeys = new Set(items.map(buildSessionSelectionKey).filter(Boolean));
+  selectedSessionKeys.forEach(key => {
+    if (!validKeys.has(key)) {
+      selectedSessionKeys.delete(key);
+    }
+  });
+
   if (!items.length) {
     els.activeUsers.innerHTML = '<span class="panel-note">Sem usuários ativos.</span>';
     if (els.activeUsersNote) {
       els.activeUsersNote.textContent = '0 usuários conectados';
     }
     els.activeUsers.classList.remove('scroll');
+    updateSelectedSessionsButton();
+    updateClearSessionsButton(0);
     return;
   }
   els.activeUsers.classList.toggle('scroll', items.length >= ACTIVE_USERS_SCROLL_MIN);
   els.activeUsers.innerHTML = items
     .map(session => {
+      const key = buildSessionSelectionKey(session);
       const name = escapeHtml(session.user?.name || 'Sem usuário');
       const device = escapeHtml(session.device?.name || session.device?.id || 'Dispositivo');
       const last = formatDateTime(session.lastEventAt);
+      const checked = key && selectedSessionKeys.has(key) ? 'checked' : '';
+      const userKey = escapeHtml(session.user?.key || '');
+      const deviceId = escapeHtml(session.device?.id || '');
       return `
-        <div class="chip">
-          ${name}
+        <label class="chip chip-selectable" data-user-key="${userKey}" data-device-id="${deviceId}">
+          <input type="checkbox" class="active-user-check" data-key="${escapeHtml(key)}" ${checked}>
+          <span class="chip-main">${name}</span>
           <small>${device} · ${escapeHtml(last)}</small>
-        </div>
+        </label>
       `;
     })
     .join('');
   if (els.activeUsersNote) {
     els.activeUsersNote.textContent = `${items.length} usuários conectados`;
   }
+  updateSelectedSessionsButton();
+  updateClearSessionsButton(items.length);
 }
 
 function resetDashboardUI() {
+  selectedSessionKeys.clear();
   state.events = [];
   state.offset = 0;
   renderEvents();
@@ -1227,7 +1326,49 @@ function initDashboardToken() {
   dashboardToken = window.localStorage.getItem('monitor_dash_token') || '';
 }
 
+function collectSelectedSessionTargets() {
+  if (!els.activeUsers) {
+    return [];
+  }
+  const seen = new Set();
+  const targets = [];
+  const checked = els.activeUsers.querySelectorAll('input.active-user-check:checked');
+  checked.forEach(input => {
+    const row = input.closest('.chip-selectable');
+    const userKey = String(row?.dataset.userKey || '').trim();
+    const deviceId = String(row?.dataset.deviceId || '').trim();
+    if (!userKey || !deviceId) {
+      return;
+    }
+    const key = `${userKey}::${deviceId}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    targets.push({ userKey, deviceId });
+  });
+  return targets;
+}
+
 function bindEvents() {
+  if (els.dialogConfirmBtn) {
+    els.dialogConfirmBtn.addEventListener('click', () => closeDialog(true));
+  }
+  if (els.dialogCancelBtn) {
+    els.dialogCancelBtn.addEventListener('click', () => closeDialog(false));
+  }
+  if (els.dialogOverlay) {
+    els.dialogOverlay.addEventListener('click', event => {
+      if (event.target === els.dialogOverlay) {
+        closeDialog(false);
+      }
+    });
+  }
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && els.dialogOverlay?.classList.contains('open')) {
+      closeDialog(false);
+    }
+  });
   if (els.tabButtons) {
     els.tabButtons.forEach(button => {
       button.addEventListener('click', () => {
@@ -1286,22 +1427,109 @@ function bindEvents() {
   }
   if (els.clearSessionsBtn) {
     els.clearSessionsBtn.addEventListener('click', async () => {
-      if (!confirm('Encerrar todas as sessões ativas?')) {
+      const confirmar = await showDialog({
+        eyebrow: 'Encerrar sessões',
+        title: 'Confirmar ação global',
+        message: 'Você vai encerrar TODAS as sessões ativas e forçar novo login nas extensões conectadas.',
+        confirmText: 'Encerrar tudo',
+        cancelText: 'Cancelar',
+        showCancel: true
+      });
+      if (!confirmar) {
         return;
       }
-      setLoadingVisible(true, 'Encerrando sessões...');
+      setLoadingVisible(true, 'Encerrando todas as sessões e aplicando logout remoto...');
       try {
-        await apiPost('/api/sessions/clear');
+        const result = await apiPost('/api/sessions/clear');
         await Promise.all([
           fetchOverview(),
           fetchActiveSessions(),
           fetchEvents(true)
         ]);
+        const total = Number(result?.cleared || 0);
+        await showDialog({
+          eyebrow: 'Sessões encerradas',
+          title: 'Operação concluída',
+          message: `${total} sessão(ões) encerrada(s) com sucesso.`,
+          confirmText: 'Fechar',
+          showCancel: false
+        });
       } catch (error) {
-        // ignore
+        await showDialog({
+          eyebrow: 'Falha na operação',
+          title: 'Não foi possível concluir',
+          message: 'Não foi possível encerrar todas as sessões agora. Tente novamente em instantes.',
+          confirmText: 'Fechar',
+          showCancel: false
+        });
       } finally {
         setLoadingVisible(false);
       }
+    });
+  }
+  if (els.clearSelectedSessionsBtn) {
+    els.clearSelectedSessionsBtn.addEventListener('click', async () => {
+      const targets = collectSelectedSessionTargets();
+      if (!targets.length) {
+        return;
+      }
+      const confirmar = await showDialog({
+        eyebrow: 'Deslogar selecionados',
+        title: 'Confirmar deslogar usuários',
+        message: `Você vai deslogar ${targets.length} sessão(ões) selecionada(s).`,
+        confirmText: 'Deslogar',
+        cancelText: 'Cancelar',
+        showCancel: true
+      });
+      if (!confirmar) {
+        return;
+      }
+      setLoadingVisible(true, 'Deslogando usuários selecionados...');
+      try {
+        const result = await apiPost('/api/sessions/clear-selected', { targets });
+        selectedSessionKeys.clear();
+        await Promise.all([
+          fetchOverview(),
+          fetchActiveSessions(),
+          fetchEvents(true)
+        ]);
+        const total = Number(result?.cleared || 0);
+        await showDialog({
+          eyebrow: 'Deslogar selecionados',
+          title: 'Usuários deslogados',
+          message: `${total} sessão(ões) encerrada(s) com sucesso.`,
+          confirmText: 'Fechar',
+          showCancel: false
+        });
+      } catch (error) {
+        await showDialog({
+          eyebrow: 'Falha na operação',
+          title: 'Não foi possível concluir',
+          message: 'Não foi possível deslogar os usuários selecionados agora. Tente novamente.',
+          confirmText: 'Fechar',
+          showCancel: false
+        });
+      } finally {
+        setLoadingVisible(false);
+      }
+    });
+  }
+  if (els.activeUsers) {
+    els.activeUsers.addEventListener('change', event => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.classList.contains('active-user-check')) {
+        return;
+      }
+      const key = String(target.dataset.key || '');
+      if (!key) {
+        return;
+      }
+      if (target.checked) {
+        selectedSessionKeys.add(key);
+      } else {
+        selectedSessionKeys.delete(key);
+      }
+      updateSelectedSessionsButton();
     });
   }
   if (els.loadMoreBtn) {
@@ -1311,6 +1539,11 @@ function bindEvents() {
   }
   if (els.refreshBtn) {
     els.refreshBtn.addEventListener('click', async () => {
+      if (refreshInProgress) {
+        return;
+      }
+      refreshInProgress = true;
+      els.refreshBtn.disabled = true;
       setLoadingVisible(true, 'Verificando usuários conectados...');
       try {
         await Promise.all([
@@ -1320,6 +1553,8 @@ function bindEvents() {
           new Promise(resolve => setTimeout(resolve, 600))
         ]);
       } finally {
+        refreshInProgress = false;
+        els.refreshBtn.disabled = false;
         setLoadingVisible(false);
       }
     });

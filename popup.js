@@ -219,6 +219,7 @@ let monitorConfigAtual = {
 let monitorQueue = [];
 let monitorQueueCarregada = false;
 let monitorQueueEnviando = false;
+let monitorSessionRevokedHandling = false;
 const monitorSessionId = gerarIdAleatorio();
 
 // Parse storage date keys into local Date (avoids UTC shift and supports dd/mm/yyyy)
@@ -1844,7 +1845,7 @@ function obterMonitorUrlBase(url) {
   return valor.replace(/\/+$/, '');
 }
 
-async function validarSessaoUnicaServidor(user) {
+async function validarSessaoUnicaServidor(user, options = {}) {
   if (!monitorConfigAtual?.url) {
     return { ok: true, skipped: 'monitor_url' };
   }
@@ -1873,7 +1874,8 @@ async function validarSessaoUnicaServidor(user) {
         device: {
           id: deviceId,
           name: monitorConfigAtual.deviceName || ''
-        }
+        },
+        allowRevoked: Boolean(options?.allowRevoked)
       })
     });
     if (response.ok) {
@@ -1882,6 +1884,9 @@ async function validarSessaoUnicaServidor(user) {
     const data = await response.json().catch(() => ({}));
     if (response.status === 409 && data?.error === 'session_conflict') {
       return { ok: false, reason: 'session_conflict', active: data.active || {} };
+    }
+    if (response.status === 409 && data?.error === 'session_revoked') {
+      return { ok: false, reason: 'session_revoked', revokedAt: data.revokedAt || '' };
     }
     return { ok: false, reason: 'server_error', status: response.status };
   } catch (error) {
@@ -2142,10 +2147,55 @@ function montarEventoMonitoramento(tipo, detalhes = {}) {
   };
 }
 
+function montarMensagemSessaoRevogada(revokedAt) {
+  if (!revokedAt) {
+    return 'Sua sessão foi encerrada pelo administrador no monitoramento. Faça login novamente.';
+  }
+  return `Sua sessão foi encerrada pelo administrador em ${formatarDataHoraCurta(revokedAt)}. Faça login novamente.`;
+}
+
+async function tratarSessaoRevogadaMonitoramento(revokedAt) {
+  if (monitorSessionRevokedHandling || !usuarioLogado) {
+    return;
+  }
+  monitorSessionRevokedHandling = true;
+  try {
+    if (usuarioProvider === 'google') {
+      await logoutGoogle();
+    }
+    usuarioLogado = false;
+    usuarioAutoLogin = false;
+    usuarioFoto = '';
+    usuarioEmail = '';
+    cryptoKey = null;
+    cryptoKeyMode = 'password';
+    await limparChaveCriptoSessao();
+    loginPasswordForceChange = false;
+    await chrome.storage.local.set({
+      userProfile: {
+        name: usuarioNome,
+        autoLogin: false,
+        loggedIn: false,
+        provider: usuarioProvider,
+        email: usuarioProvider === 'google' ? usuarioEmail : ''
+      }
+    });
+    monitorQueue = [];
+    monitorQueueCarregada = true;
+    await salvarFilaMonitoramento();
+    atualizarUserDisplay();
+    abrirLoginModal();
+    await salvarMonitorEstadoAtual();
+    await showMessageSemCancelar(montarMensagemSessaoRevogada(revokedAt), 'Login');
+  } finally {
+    monitorSessionRevokedHandling = false;
+  }
+}
+
 async function enviarEventoMonitoramentoDireto(config, evento) {
   const baseUrl = obterMonitorUrlBase(config.url);
   if (!baseUrl) {
-    return false;
+    return { ok: false, reason: 'monitor_url' };
   }
   const headers = {
     'Content-Type': 'application/json'
@@ -2157,9 +2207,16 @@ async function enviarEventoMonitoramentoDireto(config, evento) {
       body: JSON.stringify(evento),
       keepalive: true
     });
-    return response.ok;
+    if (response.ok) {
+      return { ok: true };
+    }
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 409 && data?.error === 'session_revoked') {
+      return { ok: false, reason: 'session_revoked', revokedAt: data.revokedAt || '' };
+    }
+    return { ok: false, reason: 'server_error', status: response.status };
   } catch (error) {
-    return false;
+    return { ok: false, reason: 'network_error' };
   }
 }
 
@@ -2179,8 +2236,14 @@ async function tentarEnviarFilaMonitoramento() {
     }
     let indiceFalha = -1;
     for (let i = 0; i < monitorQueue.length; i += 1) {
-      const ok = await enviarEventoMonitoramentoDireto(monitorConfigAtual, monitorQueue[i]);
-      if (!ok) {
+      const result = await enviarEventoMonitoramentoDireto(monitorConfigAtual, monitorQueue[i]);
+      if (!result.ok) {
+        if (result.reason === 'session_revoked') {
+          monitorQueue = [];
+          await salvarFilaMonitoramento();
+          await tratarSessaoRevogadaMonitoramento(result.revokedAt || '');
+          return;
+        }
         indiceFalha = i;
         break;
       }
@@ -2204,8 +2267,14 @@ async function enviarEventoMonitoramento(tipo, detalhes = {}) {
     return;
   }
   const evento = montarEventoMonitoramento(tipo, detalhes);
-  const ok = await enviarEventoMonitoramentoDireto(monitorConfigAtual, evento);
-  if (!ok) {
+  const result = await enviarEventoMonitoramentoDireto(monitorConfigAtual, evento);
+  if (!result.ok) {
+    if (result.reason === 'session_revoked') {
+      if (tipo !== 'logout') {
+        await tratarSessaoRevogadaMonitoramento(result.revokedAt || '');
+      }
+      return;
+    }
     await enfileirarEventoMonitoramento(evento);
     return;
   }
@@ -3659,6 +3728,8 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
     name: perfil.name || perfil.given_name || '',
     email: perfil.email || '',
     provider: 'google'
+  }, {
+    allowRevoked: Boolean(interactive)
   });
   if (!sessaoOk.ok) {
     let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
@@ -3671,6 +3742,8 @@ async function loginComGoogle({ interactive, autoLogin, clearPending } = {}) {
         mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
       }
       mensagem += ' Faça logout lá para continuar.';
+    } else if (sessaoOk.reason === 'session_revoked') {
+      mensagem = montarMensagemSessaoRevogada(sessaoOk.revokedAt || '');
     }
     if (interactive) {
       if (loginModal && !loginModal.classList.contains('open')) {
@@ -3893,6 +3966,8 @@ async function carregarUsuario() {
       name: usuarioNome || '',
       email: '',
       provider: 'local'
+    }, {
+      allowRevoked: false
     });
     if (!sessaoOk.ok) {
       let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
@@ -3905,6 +3980,8 @@ async function carregarUsuario() {
           mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
         }
         mensagem += ' Faça logout lá para continuar.';
+      } else if (sessaoOk.reason === 'session_revoked') {
+        mensagem = montarMensagemSessaoRevogada(sessaoOk.revokedAt || '');
       }
       if (loginModal && !loginModal.classList.contains('open')) {
         abrirLoginModal();
@@ -4120,6 +4197,8 @@ async function efetuarLogin() {
     name: nome,
     email: '',
     provider: 'local'
+  }, {
+    allowRevoked: true
   });
   if (!sessaoOk.ok) {
     let mensagem = 'Servidor indisponível para validar sessão. Tente novamente.';
@@ -4132,6 +4211,8 @@ async function efetuarLogin() {
         mensagem += ` Última atividade: ${formatarDataHoraCurta(sessaoOk.active.lastEventAt)}.`;
       }
       mensagem += ' Faça logout lá para continuar.';
+    } else if (sessaoOk.reason === 'session_revoked') {
+      mensagem = montarMensagemSessaoRevogada(sessaoOk.revokedAt || '');
     }
     if (loginModal && !loginModal.classList.contains('open')) {
       abrirLoginModal();

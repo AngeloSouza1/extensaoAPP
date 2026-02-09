@@ -21,6 +21,18 @@
       </div>
     </div>
 
+    <div class="dialog-overlay" id="dialogOverlay" aria-hidden="true">
+      <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+        <div class="dialog-eyebrow" id="dialogEyebrow">Ação do sistema</div>
+        <h3 id="dialogTitle">Confirmação</h3>
+        <p id="dialogMessage">Deseja continuar?</p>
+        <div class="dialog-actions">
+          <button class="btn ghost" id="dialogCancelBtn">Cancelar</button>
+          <button class="btn primary" id="dialogConfirmBtn">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
     <div class="login-overlay" id="loginOverlay" aria-hidden="true">
       <div class="login-card">
         <div class="login-eyebrow">Acesso restrito</div>
@@ -64,6 +76,7 @@
         </div>
         <button class="btn ghost theme-btn" id="themeToggleBtn" aria-pressed="false" aria-label="Alternar tema">🌙</button>
         <button class="btn ghost" id="refreshBtn">Atualizar</button>
+        <button class="btn outline" id="clearSelectedSessionsBtn" disabled>Deslogar selecionados</button>
         <button class="btn outline" id="clearSessionsBtn">Encerrar sessões</button>
         <button class="btn outline" id="logoutBtn">Sair</button>
       </div>

@@ -72,11 +72,27 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions (ended_at);
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_key);
+
+  CREATE TABLE IF NOT EXISTS session_revocations (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    session_id TEXT,
+    revoked_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_session_revocations_user_device
+    ON session_revocations (user_key, device_id);
 `);
 
 const clearActiveSessionsStmt = db.prepare(`
   UPDATE sessions
   SET ended_at = ?
+  WHERE ended_at IS NULL;
+`);
+
+const listSessionsToClearStmt = db.prepare(`
+  SELECT id, session_id, user_key, device_id
+  FROM sessions
   WHERE ended_at IS NULL;
 `);
 
@@ -170,6 +186,12 @@ const findActiveSessionsByUserDeviceStmt = db.prepare(`
   WHERE user_key = ? AND device_id = ? AND ended_at IS NULL;
 `);
 
+const findActiveSessionsDetailByUserDeviceStmt = db.prepare(`
+  SELECT id, session_id
+  FROM sessions
+  WHERE user_key = ? AND device_id = ? AND ended_at IS NULL;
+`);
+
 const findActiveSessionByUserOtherDeviceStmt = db.prepare(`
   SELECT device_id, device_name, last_event_at
   FROM sessions
@@ -187,6 +209,37 @@ const findActiveSessionByUserOtherDeviceWithTtlStmt = db.prepare(`
     AND last_event_at >= ?
   ORDER BY last_event_at DESC
   LIMIT 1;
+`);
+
+const findSessionRevocationByUserDeviceStmt = db.prepare(`
+  SELECT id, revoked_at
+  FROM session_revocations
+  WHERE user_key = ? AND device_id = ?
+  LIMIT 1;
+`);
+
+const upsertSessionRevocationStmt = db.prepare(`
+  INSERT INTO session_revocations (
+    id,
+    user_key,
+    device_id,
+    session_id,
+    revoked_at
+  ) VALUES (
+    @id,
+    @user_key,
+    @device_id,
+    @session_id,
+    @revoked_at
+  )
+  ON CONFLICT(user_key, device_id) DO UPDATE SET
+    session_id = excluded.session_id,
+    revoked_at = excluded.revoked_at;
+`);
+
+const deleteSessionRevocationByUserDeviceStmt = db.prepare(`
+  DELETE FROM session_revocations
+  WHERE user_key = ? AND device_id = ?;
 `);
 
 const updateSessionActivityStmt = db.prepare(`
@@ -481,8 +534,88 @@ function closeActiveSessions(userKey, deviceId, endedAt) {
   });
 }
 
+function clearSessionRevocation(userKey, deviceId) {
+  if (!userKey || !deviceId) {
+    return;
+  }
+  deleteSessionRevocationByUserDeviceStmt.run(userKey, deviceId);
+}
+
+function isSessionRevoked(userKey, deviceId) {
+  if (!userKey || !deviceId) {
+    return null;
+  }
+  return findSessionRevocationByUserDeviceStmt.get(userKey, deviceId) || null;
+}
+
+function clearActiveSessionsAndRevoke(endedAt) {
+  const rows = listSessionsToClearStmt.all();
+  let revoked = 0;
+  rows.forEach(row => {
+    const userKey = normalizeUserKey(row.user_key);
+    const deviceId = String(row.device_id || '').trim();
+    if (!userKey || !deviceId) {
+      return;
+    }
+    upsertSessionRevocationStmt.run({
+      id: randomUUID(),
+      user_key: userKey,
+      device_id: deviceId,
+      session_id: row.session_id || '',
+      revoked_at: endedAt
+    });
+    revoked += 1;
+  });
+  const result = clearActiveSessionsStmt.run(endedAt);
+  return {
+    cleared: result.changes || 0,
+    revoked,
+    endedAt
+  };
+}
+
+function clearSelectedSessionsAndRevoke(targets, endedAt) {
+  if (!Array.isArray(targets) || !targets.length) {
+    return { cleared: 0, revoked: 0, endedAt };
+  }
+  const uniqueTargets = new Map();
+  targets.forEach(target => {
+    const userKey = normalizeUserKey(target?.userKey);
+    const deviceId = String(target?.deviceId || '').trim();
+    if (!userKey || !deviceId) {
+      return;
+    }
+    uniqueTargets.set(`${userKey}::${deviceId}`, { userKey, deviceId });
+  });
+
+  let cleared = 0;
+  let revoked = 0;
+  uniqueTargets.forEach(({ userKey, deviceId }) => {
+    const rows = findActiveSessionsDetailByUserDeviceStmt.all(userKey, deviceId);
+    if (!rows.length) {
+      return;
+    }
+    const lastSessionId = rows[0]?.session_id || '';
+    upsertSessionRevocationStmt.run({
+      id: randomUUID(),
+      user_key: userKey,
+      device_id: deviceId,
+      session_id: lastSessionId,
+      revoked_at: endedAt
+    });
+    revoked += 1;
+    rows.forEach(row => {
+      endSessionStmt.run(endedAt, endedAt, row.id);
+      cleared += 1;
+    });
+  });
+
+  return { cleared, revoked, endedAt };
+}
+
 function createSession(eventRow, lastEventAt) {
   const sessionId = eventRow.session_id || randomUUID();
+  clearSessionRevocation(eventRow.user_key, eventRow.device_id);
   closeActiveSessions(eventRow.user_key, eventRow.device_id, lastEventAt);
   insertSessionStmt.run({
     id: randomUUID(),
@@ -619,6 +752,17 @@ app.post('/api/sessions/claim', requireEventAuth, (req, res) => {
   if (!userKey || !deviceId) {
     return res.status(400).json({ error: 'user_device_required' });
   }
+  const allowRevoked = Boolean(payload.allowRevoked);
+  const revoked = isSessionRevoked(userKey, deviceId);
+  if (revoked) {
+    if (!allowRevoked) {
+      return res.status(409).json({
+        error: 'session_revoked',
+        revokedAt: revoked.revoked_at || ''
+      });
+    }
+    clearSessionRevocation(userKey, deviceId);
+  }
 
   const threshold = getActiveSessionThresholdIso();
   const active = threshold
@@ -673,6 +817,16 @@ app.post('/api/events', requireEventAuth, (req, res) => {
       sessionId: payload.sessionId || ''
     })
   };
+
+  const userKey = normalizeUserKey(eventRow.user_key);
+  const deviceId = String(eventRow.device_id || '').trim();
+  const revoked = isSessionRevoked(userKey, deviceId);
+  if (revoked && eventRow.type !== 'login_success') {
+    return res.status(409).json({
+      error: 'session_revoked',
+      revokedAt: revoked.revoked_at || ''
+    });
+  }
 
   insertEventStmt.run(eventRow);
   handleSessionUpdate(eventRow, ts);
@@ -949,8 +1103,28 @@ app.get('/api/sessions', requireDashboardAuth, (req, res) => {
 
 app.post('/api/sessions/clear', requireDashboardAuth, (req, res) => {
   const endedAt = new Date().toISOString();
-  const result = clearActiveSessionsStmt.run(endedAt);
-  res.json({ ok: true, cleared: result.changes || 0, endedAt });
+  const result = clearActiveSessionsAndRevoke(endedAt);
+  res.json({
+    ok: true,
+    cleared: result.cleared || 0,
+    revoked: result.revoked || 0,
+    endedAt: result.endedAt
+  });
+});
+
+app.post('/api/sessions/clear-selected', requireDashboardAuth, (req, res) => {
+  const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+  if (!targets.length) {
+    return res.status(400).json({ error: 'targets_required' });
+  }
+  const endedAt = new Date().toISOString();
+  const result = clearSelectedSessionsAndRevoke(targets, endedAt);
+  return res.json({
+    ok: true,
+    cleared: result.cleared || 0,
+    revoked: result.revoked || 0,
+    endedAt: result.endedAt
+  });
 });
 
 app.get('/api/overview', requireDashboardAuth, (req, res) => {
